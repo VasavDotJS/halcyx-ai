@@ -1,0 +1,11 @@
+# Maestro workspace config. Run: HALCYX_E2E_EMAIL=… HALCYX_E2E_PASSWORD=… npm run e2e
+flows:
+  - '*.yaml'
+executionOrder:
+  continueOnFailure: false
+  flowsOrder:
+    - 01-launch
+    - 02-sign-in-onboarding
+    - 03-themes
+    - 04-storage-cleaner
+    - 05-privacy-wipe

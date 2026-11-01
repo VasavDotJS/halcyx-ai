@@ -1,0 +1,27 @@
+appId: ${APP_ID || 'app.halcyx.mobile'}
+name: Live theme switching
+---
+- launchApp
+# Relies on the session + onboarding state left by 02-sign-in-onboarding.
+- runFlow:
+    when:
+      visible: 'Continue with Apple'
+    file: subflows/sign-in.yaml
+- extendedWaitUntil:
+    visible: 'Settings'
+    timeout: 20000
+- tapOn: 'Settings'
+- tapOn: 'Appearance'
+- tapOn: 'Choose'
+- tapOn: 'Paper'
+- assertVisible:
+    text: 'Paper'
+    selected: true
+- tapOn: 'Graphite'
+- tapOn: 'Aurora'
+- tapOn: 'High Contrast'
+- assertVisible:
+    text: 'High Contrast'
+    selected: true
+- tapOn: 'Midnight'
+- tapOn: 'Follow system'

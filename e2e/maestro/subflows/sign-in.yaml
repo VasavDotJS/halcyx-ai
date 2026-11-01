@@ -1,0 +1,12 @@
+appId: ${APP_ID || 'app.halcyx.mobile'}
+---
+# Signs in with the dedicated E2E account (email + password).
+- extendedWaitUntil:
+    visible: 'Continue with Apple'
+    timeout: 20000
+- tapOn: 'Email'
+- inputText: ${HALCYX_E2E_EMAIL}
+- tapOn: 'Password'
+- inputText: ${HALCYX_E2E_PASSWORD}
+- hideKeyboard
+- tapOn: 'Sign in'

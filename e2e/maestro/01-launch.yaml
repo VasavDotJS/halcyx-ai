@@ -1,0 +1,14 @@
+appId: ${APP_ID || 'app.halcyx.mobile'}
+name: Cold launch shows sign-in
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- extendedWaitUntil:
+    visible: 'Continue with Apple'
+    timeout: 20000
+- assertVisible: 'Continue with Google'
+- assertVisible: 'Continue with GitHub'
+- assertVisible: 'Create account'
+- tapOn: 'Magic link'
+- assertVisible: 'Email me a sign-in link'

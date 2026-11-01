@@ -1,0 +1,23 @@
+appId: ${APP_ID || 'app.halcyx.mobile'}
+name: Storage cleaner reports and cleans caches
+---
+- launchApp
+# Relies on the session + onboarding state left by 02-sign-in-onboarding.
+- runFlow:
+    when:
+      visible: 'Continue with Apple'
+    file: subflows/sign-in.yaml
+- extendedWaitUntil:
+    visible: 'Settings'
+    timeout: 20000
+- tapOn: 'Settings'
+- tapOn: 'Storage cleaner'
+- assertVisible: 'Auto-clean'
+- runFlow:
+    when:
+      visible: 'Clean all'
+    commands:
+      - tapOn: 'Clean all'
+- extendedWaitUntil:
+    visible: 'All clean'
+    timeout: 20000

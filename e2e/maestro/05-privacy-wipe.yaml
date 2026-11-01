@@ -1,0 +1,26 @@
+appId: ${APP_ID || 'app.halcyx.mobile'}
+name: Privacy wipe is gated by device authentication
+# Maestro can't approve Face ID / BiometricPrompt, so this flow verifies the gate:
+# cancelling (or a device with no passcode) must leave every byte of data in place.
+# Crypto-shredding itself is covered by tests/workspace.shred.test.ts.
+---
+- launchApp
+# Relies on the session + onboarding state left by 02-sign-in-onboarding.
+- runFlow:
+    when:
+      visible: 'Continue with Apple'
+    file: subflows/sign-in.yaml
+- extendedWaitUntil:
+    visible: 'Settings'
+    timeout: 20000
+- tapOn: 'Settings'
+- tapOn: 'Privacy dashboard'
+- assertVisible: 'What’s stored where'
+- tapOn: 'Wipe all local data'
+- runFlow:
+    when:
+      visible: 'Cancel'
+    commands:
+      - tapOn: 'Cancel'
+- assertVisible: 'What’s stored where'
+- assertNotVisible: 'Continue with Apple'

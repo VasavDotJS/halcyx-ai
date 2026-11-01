@@ -1,0 +1,29 @@
+appId: ${APP_ID || 'app.halcyx.mobile'}
+name: Sign in and walk the 60-second onboarding
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- runFlow: subflows/sign-in.yaml
+- extendedWaitUntil:
+    visible: 'Get started'
+    timeout: 20000
+- assertVisible: 'Your keys and code stay yours'
+- tapOn: 'Get started'
+# Step 1 — Google key concierge, paste the key from the E2E environment.
+- extendedWaitUntil:
+    visible: 'Step 1 of 4 · API key'
+    timeout: 10000
+- tapOn: 'Or paste it here'
+- inputText: ${HALCYX_E2E_GEMINI_KEY}
+- hideKeyboard
+- tapOn: 'Validate & save'
+# Step 2 — GitHub OAuth runs in the system browser, so E2E skips it; the flow must not dead-end.
+- extendedWaitUntil:
+    visible: 'Connect GitHub'
+    timeout: 20000
+- tapOn: 'Skip for now'
+- extendedWaitUntil:
+    visible: 'You can connect GitHub later from Projects.|Connect GitHub'
+    timeout: 10000
+- assertVisible: 'Settings'
