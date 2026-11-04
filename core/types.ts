@@ -1,6 +1,12 @@
 /** Shared domain types. Everything here is plain data so it can cross module boundaries safely. */
 
-export type ProviderId = 'gemini' | 'anthropic' | 'openai';
+/** The one list of providers; everything else derives from it. */
+export const PROVIDER_IDS = ['gemini', 'anthropic', 'openai'] as const;
+export type ProviderId = (typeof PROVIDER_IDS)[number];
+
+export const THEME_NAMES = ['midnight', 'paper', 'graphite', 'aurora', 'high-contrast'] as const;
+export type ThemeName = (typeof THEME_NAMES)[number];
+export type ThemePreference = 'system' | ThemeName;
 export type Effort = 'low' | 'medium' | 'high' | 'max';
 export const EFFORT_ORDER: Effort[] = ['low', 'medium', 'high', 'max'];
 
@@ -30,6 +36,8 @@ export type RepoRef = {
 
 export type ImageInput = { mimeType: string; base64: string };
 
+export type AgentNetwork = 'registries' | 'open';
+
 export type AgentTaskRequest = {
   taskId: string;
   provider: ProviderId;
@@ -46,6 +54,12 @@ export type AgentTaskRequest = {
   instructions: string;
   approvalMode: boolean;
   askBeforeCommands: boolean;
+  /**
+   * Sandbox internet access. "registries" (default) allows only package registries plus the
+   * repository host; "open" is unrestricted and lets a prompt-injected agent send code anywhere.
+   * Optional so tasks stored before this setting existed resume with the safe default.
+   */
+  network?: AgentNetwork;
   /** Hard token budget derived from the user's cost cap, if any. */
   tokenBudget: number | null;
   /** Continue in an existing sandbox (follow-ups, rebases). */
@@ -92,6 +106,8 @@ export type SandboxChecks = {
 export type ChangeSet = {
   files: { path: string; bytes: Uint8Array }[];
   deleted: string[];
+  /** Files the agent changed that were too large to bring into review; never pushed. */
+  skipped?: { path: string; bytes: number }[];
   summary: string;
   commitMessage: string;
   checks: SandboxChecks;

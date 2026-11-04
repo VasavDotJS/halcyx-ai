@@ -7,7 +7,7 @@ import type { ImageInput } from '@/core/types';
 import { useSettings } from '@/state/settings';
 import { haptic } from './haptics';
 import { IconButton } from './primitives/IconButton';
-import { Text } from './primitives/Text';
+import { MAX_FONT_SCALE, Text } from './primitives/Text';
 import { useTheme } from './ThemeProvider';
 import { useDictation } from './useDictation';
 
@@ -104,6 +104,7 @@ export function Composer({
           </View>
         ) : null}
         <TextInput
+          maxFontSizeMultiplier={MAX_FONT_SCALE}
           value={text}
           onChangeText={(v) => {
             setText(v);

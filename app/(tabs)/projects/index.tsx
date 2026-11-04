@@ -39,11 +39,7 @@ export default function Projects() {
   }
   return (
     <Screen title="Projects" scroll={false}>
-      <RepoList
-        onSelect={(r) =>
-          router.push({ pathname: '/(tabs)/projects/[owner]/[repo]', params: { owner: r.owner, repo: r.name, meta: JSON.stringify(r) } })
-        }
-      />
+      <RepoList onSelect={(r) => router.push({ pathname: '/(tabs)/projects/[owner]/[repo]', params: { owner: r.owner, repo: r.name } })} />
     </Screen>
   );
 }

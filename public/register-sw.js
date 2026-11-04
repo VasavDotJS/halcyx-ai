@@ -5,12 +5,12 @@
  */
 (function () {
   if (!('serviceWorker' in navigator) || !document.currentScript) return;
-  var src = document.currentScript.src;
-  var key = 'halcyx-coi-reload';
+  const src = document.currentScript.src;
+  const key = 'halcyx-coi-reload';
   if (window.crossOriginIsolated) {
     try {
       sessionStorage.removeItem(key);
-    } catch (e) {}
+    } catch {}
   }
   navigator.serviceWorker
     .register(new URL('sw.js', src).href, { scope: new URL('./', src).pathname })
@@ -19,7 +19,7 @@
       try {
         if (sessionStorage.getItem(key)) return;
         sessionStorage.setItem(key, '1');
-      } catch (e) {
+      } catch {
         return;
       }
       if (navigator.serviceWorker.controller) location.reload();

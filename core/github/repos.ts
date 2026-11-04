@@ -17,6 +17,12 @@ export async function listAccessibleRepos(gh: GitHub): Promise<RepoRef[]> {
   return repos.sort((a, b) => `${a.owner}/${a.name}`.localeCompare(`${b.owner}/${b.name}`));
 }
 
+/** Repository metadata by owner/name (route params carry only these, never a serialized object). */
+export async function getRepo(gh: GitHub, owner: string, name: string): Promise<RepoRef> {
+  const { data: r } = await gh.repos.get({ owner, repo: name });
+  return { owner: r.owner.login, name: r.name, id: r.id, defaultBranch: r.default_branch, private: r.private };
+}
+
 export function filterRepos(repos: RepoRef[], query: string): RepoRef[] {
   const q = query.trim().toLowerCase();
   if (!q) return repos;

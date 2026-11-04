@@ -36,7 +36,12 @@ export class KeyVault {
 
   async status(provider: ProviderId): Promise<KeyValidation | null> {
     const row = await this.p.db.get<{ value: string }>('SELECT value FROM kv WHERE key = ?', [statusKey(provider)]);
-    return row ? (JSON.parse(row.value) as KeyValidation) : null;
+    if (!row) return null;
+    try {
+      return JSON.parse(row.value) as KeyValidation;
+    } catch {
+      return null; // corrupt status reads as "not yet validated"
+    }
   }
 
   async validate(provider: ProviderId, fetchImpl: FetchLike, isWeb: boolean): Promise<KeyValidation> {

@@ -1,5 +1,6 @@
+import { mapLimit } from '@/core/util/concurrency';
 import type { Platform } from '@/core/platform/types';
-import { gitBlobSha, generateKeyMaterial, open, openText, randomId, seal, sealText, utf8 } from '@/core/security/crypto';
+import { forgetKey, generateKeyMaterial, gitBlobSha, open, openText, randomId, seal, sealText, utf8 } from '@/core/security/crypto';
 import type { ChangeSet, FileChangeKind, ProviderId, SandboxChecks } from '@/core/types';
 import { applyHunkDecisions, isBinary } from './diff';
 
@@ -14,6 +15,8 @@ export type WorkspaceMeta = {
   checks: SandboxChecks;
   environmentId: string | null;
   openPullRequest: boolean;
+  /** Files the agent changed that exceeded the review size limit (not included, never pushed). */
+  skipped?: { path: string; bytes: number }[];
   /** Commit created but ref not yet confirmed — used for crash-safe push recovery. */
   pendingCommitSha: string | null;
   remoteHeadSha: string | null;
@@ -68,6 +71,18 @@ type FileRow = {
 };
 
 export const HOUR = 3_600_000;
+/** Files encrypted/decrypted at once: faster than sequential, bounded memory. */
+const FILE_CONCURRENCY = 6;
+
+/** Stored per-hunk decisions; malformed data reads as "nothing rejected" instead of crashing review. */
+function parseHunkList(raw: string): number[] {
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((n): n is number => Number.isInteger(n) && n >= 0) : [];
+  } catch {
+    return [];
+  }
+}
 export const MIN_RETENTION = HOUR;
 export const MAX_RETENTION = 7 * 24 * HOUR;
 export const DEFAULT_RETENTION = 72 * HOUR;
@@ -200,12 +215,12 @@ export class WorkspaceStore {
     const key = await this.key(id);
     await this.clearFiles(id);
     let count = 0;
-    for (const f of changes.files) {
+    await mapLimit(changes.files, FILE_CONCURRENCY, async (f) => {
       const existing = await base(f.path);
-      if (existing && existing.sha === (await gitBlobSha(f.bytes))) continue;
+      if (existing && existing.sha === (await gitBlobSha(f.bytes))) return;
       await this.putFile(id, key, f.path, f.bytes, existing ? 'modified' : 'added', existing?.mode ?? '100644');
       count += 1;
-    }
+    });
     for (const path of changes.deleted) {
       const existing = await base(path);
       if (!existing) continue;
@@ -216,6 +231,7 @@ export class WorkspaceStore {
       summary: changes.summary,
       commitMessage: changes.commitMessage,
       checks: changes.checks,
+      skipped: changes.skipped ?? [],
     });
     await this.setStatus(id, 'ready');
     return count;
@@ -250,19 +266,16 @@ export class WorkspaceStore {
   async files(id: string): Promise<WorkspaceFile[]> {
     const key = await this.key(id);
     const rows = await this.p.db.all<FileRow>('SELECT * FROM ws_files WHERE workspace_id = ?', [id]);
-    const out: WorkspaceFile[] = [];
-    for (const r of rows) {
-      out.push({
-        id: r.id,
-        path: await openText(key, r.path_enc, `${id}:${r.id}:path`),
-        change: r.change,
-        size: r.size,
-        binary: r.binary === 1,
-        mode: r.mode,
-        decision: r.decision,
-        rejectedHunks: JSON.parse(r.rejected_hunks) as number[],
-      });
-    }
+    const out = await mapLimit(rows, FILE_CONCURRENCY, async (r) => ({
+      id: r.id,
+      path: await openText(key, r.path_enc, `${id}:${r.id}:path`),
+      change: r.change,
+      size: r.size,
+      binary: r.binary === 1,
+      mode: r.mode,
+      decision: r.decision,
+      rejectedHunks: parseHunkList(r.rejected_hunks),
+    }));
     return out.sort((a, b) => a.path.localeCompare(b.path));
   }
 
@@ -300,24 +313,17 @@ export class WorkspaceStore {
 
   /** Final content to commit, applying per-file and per-hunk decisions. */
   async finalFiles(id: string, fetchBase: (path: string) => Promise<Uint8Array>): Promise<FinalFile[]> {
-    const out: FinalFile[] = [];
-    for (const f of await this.files(id)) {
-      if (f.decision === 'rejected') continue;
-      if (f.change === 'deleted') {
-        out.push({ path: f.path, bytes: null, mode: f.mode });
-        continue;
-      }
+    const files = (await this.files(id)).filter((f) => f.decision !== 'rejected');
+    const out = await mapLimit(files, FILE_CONCURRENCY, async (f): Promise<FinalFile | null> => {
+      if (f.change === 'deleted') return { path: f.path, bytes: null, mode: f.mode };
       const head = await this.readHead(id, f.id);
-      if (!head) continue;
-      if (!f.rejectedHunks.length || f.binary || f.change === 'added') {
-        out.push({ path: f.path, bytes: head, mode: f.mode });
-        continue;
-      }
+      if (!head) return null;
+      if (!f.rejectedHunks.length || f.binary || f.change === 'added') return { path: f.path, bytes: head, mode: f.mode };
       const base = await this.readBase(id, f.id, () => fetchBase(f.path));
       const merged = applyHunkDecisions(utf8.decode(base), utf8.decode(head), new Set(f.rejectedHunks));
-      out.push({ path: f.path, bytes: utf8.encode(merged), mode: f.mode });
-    }
-    return out;
+      return { path: f.path, bytes: utf8.encode(merged), mode: f.mode };
+    });
+    return out.filter((f): f is FinalFile => f !== null);
   }
 
   /**
@@ -353,7 +359,9 @@ export class WorkspaceStore {
         );
       }
     });
+    const material = await this.p.secrets.get(keyName(id));
     await this.p.secrets.remove(keyName(id));
+    if (material) forgetKey(material);
     await this.p.db.exec('PRAGMA wal_checkpoint(TRUNCATE)').catch(() => undefined);
   }
 

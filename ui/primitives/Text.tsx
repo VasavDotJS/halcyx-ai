@@ -27,6 +27,17 @@ const TONE: Record<Tone, string> = {
 export type AppTextProps = TextProps & { variant?: Variant; tone?: Tone; className?: string };
 
 /** Typography primitive. Font scaling stays enabled (Dynamic Type up to 200%+). */
+/** Largest text scale layouts support (WCAG 1.4.4 asks for 200%). */
+export const MAX_FONT_SCALE = 2;
+
 export function Text({ variant = 'body', tone = 'fg', className = '', ...rest }: AppTextProps) {
-  return <RNText allowFontScaling className={`${VARIANT[variant]} ${TONE[tone]} ${className}`} {...rest} />;
+  // Scales with Dynamic Type / font size settings up to 200%, the level layouts are designed and tested for.
+  return (
+    <RNText
+      allowFontScaling
+      maxFontSizeMultiplier={MAX_FONT_SCALE}
+      className={`${VARIANT[variant]} ${TONE[tone]} ${className}`}
+      {...rest}
+    />
+  );
 }

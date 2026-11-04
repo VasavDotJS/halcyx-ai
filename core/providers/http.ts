@@ -52,9 +52,45 @@ export async function requestJson<T>(fetchImpl: FetchLike, url: string, init: Re
   return (text ? JSON.parse(text) : {}) as T;
 }
 
-export async function requestBytes(fetchImpl: FetchLike, url: string, init: RequestInit): Promise<Uint8Array> {
+/** Downloads a body, refusing (without buffering) anything larger than `maxBytes`. */
+export async function requestBytes(fetchImpl: FetchLike, url: string, init: RequestInit, maxBytes: number): Promise<Uint8Array> {
   const res = await request(fetchImpl, url, init);
-  return new Uint8Array(await res.arrayBuffer());
+  const tooLarge = () =>
+    new ProviderError(
+      `The sandbox returned more than ${Math.round(maxBytes / 1024 / 1024)} MB. Ask the agent for a smaller change.`,
+      413,
+      'bad_request',
+    );
+  const declared = Number(res.headers.get('content-length') ?? 'NaN');
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await res.body?.cancel().catch(() => undefined);
+    throw tooLarge();
+  }
+  if (!res.body) {
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.byteLength > maxBytes) throw tooLarge();
+    return buf;
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw tooLarge();
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.byteLength;
+  }
+  return out;
 }
 
 export function streamBody(res: Response): ReadableStream<Uint8Array> {

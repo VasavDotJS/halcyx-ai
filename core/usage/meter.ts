@@ -25,15 +25,18 @@ export class UsageMeter {
     private readonly now: () => number = Date.now,
   ) {}
 
+  /** Records usage and updates the task totals atomically, so spend can't drift. */
   async record(e: { taskId: string; provider: ProviderId; model: string; inputTokens: number; outputTokens: number; costUsd: number }) {
-    await this.db.run(
-      'INSERT INTO usage (id, task_id, provider, model, input_tokens, output_tokens, cost_usd, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [randomId(8), e.taskId, e.provider, e.model, e.inputTokens, e.outputTokens, e.costUsd, this.now()],
-    );
-    await this.db.run(
-      'UPDATE tasks SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, cost_usd = cost_usd + ? WHERE id = ?',
-      [e.inputTokens, e.outputTokens, e.costUsd, e.taskId],
-    );
+    await this.db.transaction(async () => {
+      await this.db.run(
+        'INSERT INTO usage (id, task_id, provider, model, input_tokens, output_tokens, cost_usd, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [randomId(8), e.taskId, e.provider, e.model, e.inputTokens, e.outputTokens, e.costUsd, this.now()],
+      );
+      await this.db.run(
+        'UPDATE tasks SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, cost_usd = cost_usd + ? WHERE id = ?',
+        [e.inputTokens, e.outputTokens, e.costUsd, e.taskId],
+      );
+    });
   }
 
   async monthSpend(): Promise<number> {

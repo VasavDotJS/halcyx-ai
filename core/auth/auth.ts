@@ -4,7 +4,7 @@ import * as Crypto from 'expo-crypto';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
-import { appUrl } from '@/core/app/links';
+import { appUrl } from '@/core/platform/links';
 
 WebBrowser.maybeCompleteAuthSession();
 

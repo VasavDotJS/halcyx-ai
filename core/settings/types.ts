@@ -1,5 +1,4 @@
-import type { Effort, ProviderId, RepoRef } from '@/core/types';
-import type { ThemePreference } from '@/ui/themes';
+import type { AgentNetwork, Effort, ProviderId, RepoRef, ThemePreference } from '@/core/types';
 
 export type Settings = {
   theme: ThemePreference;
@@ -9,6 +8,8 @@ export type Settings = {
   autoLockMinutes: number;
   approvalMode: boolean;
   askBeforeCommands: boolean;
+  /** Sandbox internet access; "registries" blocks sending code to arbitrary hosts. */
+  agentNetwork: AgentNetwork;
   defaultProvider: ProviderId;
   defaultModel: Partial<Record<ProviderId, string>>;
   defaultEffort: Effort;
@@ -38,6 +39,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoLockMinutes: 5,
   approvalMode: true,
   askBeforeCommands: false,
+  agentNetwork: 'registries',
   defaultProvider: 'gemini',
   defaultModel: {},
   defaultEffort: 'medium',
@@ -64,6 +66,7 @@ export const SYNCED_FIELDS = [
   'retentionHours',
   'approvalMode',
   'askBeforeCommands',
+  'agentNetwork',
   'defaultProvider',
   'defaultModel',
   'defaultEffort',

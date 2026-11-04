@@ -9,9 +9,8 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 // Importing this module also registers the background task definition (TaskManager.defineTask).
-import { registerBackgroundPolling } from '@/core/agent/background';
+import { registerBackgroundPolling } from '@/core/app/background';
 import { initSentry, Sentry } from '@/core/monitoring/sentry';
-import { installCrypto } from '@/core/security/installCrypto';
 import { useAppLifecycle } from '@/hooks/useAppLifecycle';
 import { useServicesState } from '@/hooks/useServices';
 import { BootError } from '@/ui/BootError';
@@ -20,7 +19,6 @@ import { useSession } from '@/state/session';
 import { LockScreen } from '@/ui/LockScreen';
 import { ThemeProvider, useTheme } from '@/ui/ThemeProvider';
 
-installCrypto();
 initSentry();
 void SplashScreen.preventAutoHideAsync();
 

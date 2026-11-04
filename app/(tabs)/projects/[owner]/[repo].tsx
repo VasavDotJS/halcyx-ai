@@ -6,9 +6,8 @@ import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { checksFor, type CheckState } from '@/core/github/checks';
 import { listOpenPulls, mergePullRequest } from '@/core/github/pulls';
-import { branchHead, createBranch, listBranches, recentCommits } from '@/core/github/repos';
+import { branchHead, createBranch, getRepo, listBranches, recentCommits } from '@/core/github/repos';
 import { RepoSettingsStore } from '@/core/prompts/library';
-import type { RepoRef } from '@/core/types';
 import { useReadyServices } from '@/hooks/useServices';
 import { useSettings } from '@/state/settings';
 import { Badge, Button, Input, ListRow, Row, Screen, Section, Segmented, Text } from '@/ui/primitives';
@@ -22,14 +21,16 @@ function CheckIcon({ state }: { state: CheckState }) {
 }
 
 export default function RepoDetail() {
-  const params = useLocalSearchParams<{ owner: string; repo: string; meta: string }>();
-  const repo = JSON.parse(params.meta ?? '{}') as RepoRef;
+  const params = useLocalSearchParams<{ owner: string; repo: string }>();
   const full = `${params.owner}/${params.repo}`;
   const s = useReadyServices();
+  const repoQuery = useQuery({ queryKey: ['repo', full], queryFn: async () => getRepo(await s.github(), params.owner, params.repo) });
+  const repo = repoQuery.data ?? null;
   const update = useSettings((x) => x.update);
   const store = useMemo(() => new RepoSettingsStore(s.platform), [s]);
   const [tab, setTab] = useState<'branches' | 'pulls' | 'commits' | 'agent'>('pulls');
-  const [branch, setBranch] = useState(repo.defaultBranch);
+  const [picked, setBranch] = useState<string | null>(null);
+  const branch = picked ?? repo?.defaultBranch ?? '';
   const [newBranch, setNewBranch] = useState('');
   const [instructions, setInstructions] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -56,12 +57,15 @@ export default function RepoDetail() {
           {full}
         </Text>
         {ci.data ? <CheckIcon state={ci.data.overall} /> : null}
-        {repo.private ? <Badge label="private" /> : null}
+        {repo?.private ? <Badge label="private" /> : null}
       </Row>
+      {repoQuery.error ? <Text tone="danger">{(repoQuery.error as Error).message}</Text> : null}
       <Button
-        title={`New task on ${branch}`}
+        title={branch ? `New task on ${branch}` : 'New task'}
         icon={Play}
+        disabled={!repo}
         onPress={() => {
+          if (!repo) return;
           update({ lastRepo: repo, lastBranch: branch });
           router.push('/(tabs)/chat');
         }}

@@ -2,7 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TaskLogEvent } from '@/core/agent/runner';
 import { parseModelConfig, type ModelConfig } from '@/core/providers/modelConfig';
 import { SYNCED_FIELDS, type Settings } from '@/core/settings/types';
-import { assertMetadataOnly } from './metadata';
+import { TOKEN_BROKER_FUNCTIONS, type TokenBrokerFunction } from '@/core/github/oauth';
+import { assertMetadataOnly, containsSecret, MetadataViolation } from './metadata';
 
 export type DeviceRow = {
   id: string;
@@ -51,9 +52,18 @@ export function createBackendApi(sb: SupabaseClient) {
       app_version: string;
       session_id: string | null;
     }): Promise<void> {
-      const row = { ...d, last_seen_at: new Date().toISOString() };
+      // A device name that looks like a token (users can name devices anything) is replaced, never stored.
+      const name = containsSecret(d.name) ? d.platform : d.name;
+      const row = { ...d, name, last_seen_at: new Date().toISOString() };
       assertMetadataOnly('devices', row);
-      const { error } = await sb.from('devices').upsert({ ...row, user_id: await userId() }, { onConflict: 'user_id,device_id' });
+      // The server takes user_id and session_id from the JWT; clients can't write them.
+      const { error } = await sb.rpc('register_device', {
+        p_device_id: d.device_id,
+        p_name: name,
+        p_platform: d.platform,
+        p_push_token: d.push_token,
+        p_app_version: d.app_version,
+      });
       if (error) throw error;
     },
 
@@ -98,8 +108,13 @@ export function createBackendApi(sb: SupabaseClient) {
       await sb.auth.signOut({ scope: 'local' });
     },
 
-    /** Invokes an Edge Function and unwraps the JSON body (used for GitHub OAuth exchange). */
-    async invoke<T>(name: string, body: Record<string, unknown>): Promise<T> {
+    /**
+     * Invokes one of the GitHub token-broker functions and unwraps the JSON body. Only those
+     * names are accepted: this path deliberately skips assertMetadataOnly because it carries a
+     * GitHub token, so it must not become a general escape hatch.
+     */
+    async invoke<T>(name: TokenBrokerFunction, body: Record<string, unknown>): Promise<T> {
+      if (!(TOKEN_BROKER_FUNCTIONS as readonly string[]).includes(name)) throw new MetadataViolation(`Function "${name}" is not allowed`);
       const { data, error } = await sb.functions.invoke(name, { body });
       if (error) throw new Error(error.message);
       return data as T;

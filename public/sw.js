@@ -15,6 +15,11 @@ const SHELL = ['./', 'index.html', 'manifest.json', 'favicon.png', 'pwa-192.png'
 const ua = self.navigator.userAgent;
 const COEP = /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|Edg|Firefox|FxiOS/.test(ua) ? 'require-corp' : 'credentialless';
 
+// Served as a real header on navigations (a meta tag can't express frame-ancestors/form-action).
+// Keep identical to vercel.json and netlify.toml (tests/webSecurity.test.ts checks this).
+const CSP =
+  "default-src 'self'; connect-src 'self' https://*.supabase.co https://api.github.com https://github.com https://generativelanguage.googleapis.com https://api.anthropic.com https://api.openai.com https://*.ingest.sentry.io; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; frame-src https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'";
+
 function isolate(res) {
   if (!res || res.status === 0 || res.type === 'opaque' || res.headers.has('Cross-Origin-Embedder-Policy')) return res;
   const headers = new Headers(res.headers);
@@ -22,6 +27,15 @@ function isolate(res) {
   headers.set('Cross-Origin-Embedder-Policy', COEP);
   headers.set('Cross-Origin-Resource-Policy', 'same-origin');
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
+function withPageHeaders(res) {
+  if (!res || res.status === 0 || res.type === 'opaque') return res;
+  const headers = new Headers(res.headers);
+  if (!headers.has('Content-Security-Policy')) headers.set('Content-Security-Policy', CSP);
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Referrer-Policy', 'no-referrer');
+  return isolate(new Response(res.body, { status: res.status, statusText: res.statusText, headers }));
 }
 
 self.addEventListener('install', (event) => {
@@ -49,7 +63,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(event.request)
         .catch(() => caches.match(scoped('index.html')))
-        .then(isolate),
+        .then(withPageHeaders),
     );
     return;
   }

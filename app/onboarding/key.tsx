@@ -16,7 +16,16 @@ export default function OnboardingKey() {
           router.push('/onboarding/github');
         }}
       />
-      <Button title="I’ll use Claude or OpenAI instead" variant="ghost" onPress={() => router.push('/keys/anthropic')} />
+      <Button
+        title="I’ll use Claude instead"
+        variant="ghost"
+        onPress={() => router.push({ pathname: '/keys/[provider]', params: { provider: 'anthropic', next: '/onboarding/github' } })}
+      />
+      <Button
+        title="I’ll use OpenAI instead"
+        variant="ghost"
+        onPress={() => router.push({ pathname: '/keys/[provider]', params: { provider: 'openai', next: '/onboarding/github' } })}
+      />
     </Screen>
   );
 }

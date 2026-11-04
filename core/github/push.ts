@@ -1,4 +1,5 @@
 import { toBase64 } from '@/core/security/crypto';
+import { mapLimit } from '@/core/util/concurrency';
 import type { FinalFile } from '@/core/workspace/store';
 import { type GitHub, isNotFound, splitRepo } from './client';
 
@@ -28,7 +29,11 @@ export type PushInput = {
   files: FinalFile[];
   /** Persist the commit SHA before the ref moves, so a crash mid-push can be reconciled. */
   onCommitCreated: (sha: string) => Promise<void>;
+  /** Called after each blob upload, for determinate progress on large pushes. */
+  onProgress?: () => void;
 };
+
+const BLOB_CONCURRENCY = 4;
 
 export type PushResult = { commitSha: string; branch: string };
 
@@ -72,16 +77,14 @@ export async function pushChanges(gh: GitHub, input: PushInput): Promise<PushRes
 
   const { data: baseCommit } = await gh.git.getCommit({ owner, repo, commit_sha: input.baseSha });
 
-  const tree: { path: string; mode: '100644' | '100755' | '120000'; type: 'blob'; sha: string | null }[] = [];
-  for (const f of input.files) {
-    const mode = f.mode === '100755' || f.mode === '120000' ? f.mode : '100644';
-    if (f.bytes === null) {
-      tree.push({ path: f.path, mode, type: 'blob', sha: null });
-      continue;
-    }
+  // A few blobs at a time: faster than one-by-one, gentle enough for GitHub's secondary rate limits.
+  const tree = await mapLimit(input.files, BLOB_CONCURRENCY, async (f) => {
+    const mode: '100644' | '100755' | '120000' = f.mode === '100755' || f.mode === '120000' ? f.mode : '100644';
+    if (f.bytes === null) return { path: f.path, mode, type: 'blob' as const, sha: null };
     const { data: blob } = await gh.git.createBlob({ owner, repo, content: toBase64(f.bytes), encoding: 'base64' });
-    tree.push({ path: f.path, mode, type: 'blob', sha: blob.sha });
-  }
+    input.onProgress?.();
+    return { path: f.path, mode, type: 'blob' as const, sha: blob.sha };
+  });
 
   const { data: newTree } = await gh.git.createTree({ owner, repo, base_tree: baseCommit.tree.sha, tree });
   const { data: commit } = await gh.git.createCommit({

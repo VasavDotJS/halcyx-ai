@@ -1,5 +1,6 @@
 import { SECRET_RULES } from '@/core/security/secretRules';
 import { SYNCED_FIELDS } from '@/core/settings/types';
+import { PROVIDER_IDS, THEME_NAMES } from '@/core/types';
 
 /**
  * Hard rule: the HALCYX backend never receives provider API keys or source code.
@@ -32,15 +33,16 @@ const ID = str(64, /^[A-Za-z0-9_-]+$/);
 const REPO = str(140, /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/);
 const BRANCH = str(255, /^[A-Za-z0-9._/-]+$/);
 const SHA = nullable(str(40, /^[0-9a-f]{40}$/));
-const PROVIDER = oneOf('gemini', 'anthropic', 'openai');
+const PROVIDER = oneOf(...PROVIDER_IDS);
 const MODEL = str(80, /^[a-z0-9][a-z0-9.\-_]*$/);
 
 const SETTINGS_VALIDATORS: Record<(typeof SYNCED_FIELDS)[number], Validator> = {
-  theme: oneOf('system', 'midnight', 'paper', 'graphite', 'aurora', 'high-contrast'),
+  theme: oneOf('system', ...THEME_NAMES),
   accent: nullable(str(7, /^#[0-9A-Fa-f]{6}$/)),
   retentionHours: (v) => int(v) && (v as number) >= 1 && (v as number) <= 168,
   approvalMode: bool,
   askBeforeCommands: bool,
+  agentNetwork: oneOf('registries', 'open'),
   defaultProvider: PROVIDER,
   defaultModel: (v) => !!v && typeof v === 'object' && Object.entries(v as object).every(([k, m]) => PROVIDER(k) && MODEL(m)),
   defaultEffort: oneOf('low', 'medium', 'high', 'max'),
@@ -87,7 +89,7 @@ const SCHEMAS: Record<string, Record<string, Validator>> = {
   },
 };
 
-function containsSecret(v: unknown): boolean {
+export function containsSecret(v: unknown): boolean {
   const text = JSON.stringify(v);
   return SECRET_RULES.some((r) => {
     r.regex.lastIndex = 0;

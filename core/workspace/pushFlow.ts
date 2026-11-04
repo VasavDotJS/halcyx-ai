@@ -2,6 +2,7 @@ import type { GitHub } from '@/core/github/client';
 import { openPullRequest, pullBody } from '@/core/github/pulls';
 import { isPushConfirmed, pushChanges, RemoteMovedError } from '@/core/github/push';
 import { readFileAt } from '@/core/github/repos';
+import { reported, reportError } from '@/core/monitoring/report';
 import { preflight, type Preflight } from './preflight';
 import type { WorkspaceStore } from './store';
 
@@ -17,7 +18,7 @@ export type PushOptions = {
 export type PushOutcome =
   | { kind: 'blocked'; preflight: Preflight }
   | { kind: 'remote_moved'; remoteSha: string }
-  | { kind: 'pushed'; commitSha: string; branch: string; prUrl: string | null; filesCount: number };
+  | { kind: 'pushed'; commitSha: string; branch: string; prUrl: string | null; filesCount: number; warnings: string[] };
 
 /** Metadata-only reporter (backend task_log). Never receives file contents or keys. */
 export type PushReporter = (event: {
@@ -73,6 +74,7 @@ export async function pushWorkspace(
   }
 
   let prUrl: string | null = null;
+  const warnings: string[] = [];
   if (opts.openPullRequest && opts.createBranch) {
     try {
       const pr = await openPullRequest(gh, ws.repoFull, {
@@ -82,8 +84,10 @@ export async function pushWorkspace(
         body: pullBody(ws.meta.summary, { lint: ws.meta.checks.lint.status, tests: ws.meta.checks.tests.status }, opts.taskTitle),
       });
       prUrl = pr.url;
-    } catch {
+    } catch (e) {
       prUrl = null;
+      warnings.push(`Pushed, but the pull request couldn’t be opened: ${(e as Error).message}`.slice(0, 300));
+      reportError('push.openPullRequest', e);
     }
   }
 
@@ -100,8 +104,8 @@ export async function pushWorkspace(
     branch: result.branch,
     commitSha: result.commitSha,
     filesCount: files.length,
-  }).catch(() => undefined);
-  return { kind: 'pushed', commitSha: result.commitSha, branch: result.branch, prUrl, filesCount: files.length };
+  }).catch(reported('push.report'));
+  return { kind: 'pushed', commitSha: result.commitSha, branch: result.branch, prUrl, filesCount: files.length, warnings };
 }
 
 /**

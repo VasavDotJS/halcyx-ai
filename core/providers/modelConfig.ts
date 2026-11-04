@@ -1,5 +1,5 @@
 import bundled from '@/config/models.json';
-import { EFFORT_ORDER, type Effort, type ModelInfo, type ProviderId } from '@/core/types';
+import { EFFORT_ORDER, type Effort, type ModelInfo, PROVIDER_IDS, type ProviderId } from '@/core/types';
 
 export type ModelConfig = {
   version: string;
@@ -7,7 +7,7 @@ export type ModelConfig = {
   providers: Record<ProviderId, ModelInfo[]>;
 };
 
-const PROVIDERS: ProviderId[] = ['gemini', 'anthropic', 'openai'];
+const PROVIDERS = PROVIDER_IDS;
 
 function isEffort(v: unknown): v is Effort {
   return typeof v === 'string' && (EFFORT_ORDER as string[]).includes(v);

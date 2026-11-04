@@ -1,6 +1,6 @@
 import type { AgentEvent, AgentTaskRequest, KeyValidation } from '@/core/types';
 import { mapEffort } from './effort';
-import { APPROVAL_TOOL, agentRules, buildChangeSet, decodeOrNull, findPreviewUrl, REPO_DIR } from './handoff';
+import { APPROVAL_TOOL, agentRules, buildChangeSet, decodeOrNull, findPreviewUrl, OUTPUT_LIMITS, REPO_DIR } from './handoff';
 import { type FetchLike, ProviderError, request, requestBytes, requestJson, streamBody } from './http';
 import { sseJson } from './sse';
 import type { ProviderAdapter, ProviderContext } from './types';
@@ -55,16 +55,27 @@ async function ensureAgent(req: AgentTaskRequest, ctx: ProviderContext): Promise
   return agent.id;
 }
 
-async function ensureEnvironment(ctx: ProviderContext): Promise<string> {
-  const cached = await ctx.cache.get('anthropic.environment.v1');
-  if (cached) return cached;
+/**
+ * One environment per task, deleted with its session in disposeSandbox, so nothing lingers.
+ * Networking is "limited" by default: package registries and code hosts only (Anthropic's
+ * maintained list); the attached repository stays available. "open" is an explicit opt-in.
+ */
+export function networkingFor(req: Pick<AgentTaskRequest, 'network'>) {
+  return (req.network ?? 'registries') === 'open'
+    ? { type: 'unrestricted' }
+    : { type: 'limited', allowed_hosts: [], allow_package_managers: true, allow_mcp_servers: false };
+}
+
+async function createEnvironment(req: AgentTaskRequest, ctx: ProviderContext): Promise<string> {
   const env = await post<{ id: string }>(ctx, '/environments', {
-    name: 'halcyx-cloud',
-    config: { type: 'cloud', networking: { type: 'unrestricted' } },
+    name: `halcyx-${req.taskId}`.slice(0, 64),
+    config: { type: 'cloud', networking: networkingFor(req) },
   });
-  await ctx.cache.set('anthropic.environment.v1', env.id);
   return env.id;
 }
+
+const LEGACY_SHARED_ENV = 'anthropic.environment.v1';
+const MAX_OUTPUT_PAGES = 10;
 
 function userMessage(text: string, images: AgentTaskRequest['images'] = []) {
   return {
@@ -94,11 +105,47 @@ function textOf(content: MaEvent['content']): string {
   return (content ?? []).map((c) => c.text ?? c.thinking ?? '').join('');
 }
 
-async function download(ctx: ProviderContext, fileId: string): Promise<Uint8Array> {
-  return requestBytes(ctx.fetch, `${API}/files/${fileId}/content`, {
-    headers: headers(ctx, `${BETA},${FILES_BETA}`),
-    signal: ctx.signal,
-  });
+async function download(ctx: ProviderContext, fileId: string, maxBytes: number): Promise<Uint8Array> {
+  return requestBytes(
+    ctx.fetch,
+    `${API}/files/${fileId}/content`,
+    { headers: headers(ctx, `${BETA},${FILES_BETA}`), signal: ctx.signal },
+    maxBytes,
+  );
+}
+
+type FileRow = { id: string; filename: string };
+
+/** Lists every output file of a session (paginated). Fails loudly instead of silently truncating. */
+async function listOutputs(ctx: ProviderContext, sessionId: string): Promise<FileRow[]> {
+  const out: FileRow[] = [];
+  let after: string | null = null;
+  for (let page = 0; page < MAX_OUTPUT_PAGES; page += 1) {
+    const q: string = `scope_id=${encodeURIComponent(sessionId)}&limit=100${after ? `&after_id=${encodeURIComponent(after)}` : ''}`;
+    const res: { data: FileRow[]; has_more?: boolean; last_id?: string | null } = await requestJson(ctx.fetch, `${API}/files?${q}`, {
+      headers: headers(ctx, `${BETA},${FILES_BETA}`),
+      signal: ctx.signal,
+    });
+    out.push(...res.data);
+    if (!res.has_more) return out;
+    after = res.last_id ?? res.data[res.data.length - 1]?.id ?? null;
+    if (!after) return out;
+  }
+  throw new ProviderError(
+    `The session produced more than ${MAX_OUTPUT_PAGES * 100} output files; HALCYX can't review that safely.`,
+    413,
+    'bad_request',
+  );
+}
+
+async function deleteQuietly(ctx: ProviderContext, path: string): Promise<boolean> {
+  try {
+    await request(ctx.fetch, `${API}${path}`, { method: 'DELETE', headers: headers(ctx) });
+    return true;
+  } catch (e) {
+    if (e instanceof ProviderError && e.status === 404) return true;
+    throw e;
+  }
 }
 
 export const anthropicAdapter: ProviderAdapter = {
@@ -134,7 +181,7 @@ export const anthropicAdapter: ProviderAdapter = {
         state: { pendingEvents: [userMessage(req.prompt, req.images)] },
       };
     }
-    const [agentId, environmentId] = await Promise.all([ensureAgent(req, ctx), ensureEnvironment(ctx)]);
+    const [agentId, environmentId] = await Promise.all([ensureAgent(req, ctx), createEnvironment(req, ctx)]);
     const session = await post<{ id: string }>(ctx, '/sessions', {
       agent: { type: 'agent_with_overrides', id: agentId, model: { id: req.model, effort: req.effort } },
       environment_id: environmentId,
@@ -156,7 +203,7 @@ export const anthropicAdapter: ProviderAdapter = {
       remoteId: session.id,
       environmentId: session.id,
       model: req.model,
-      state: { pendingEvents: [userMessage(prompt, req.images)] },
+      state: { pendingEvents: [userMessage(prompt, req.images)], providerEnvironmentId: environmentId },
     };
   },
 
@@ -312,21 +359,17 @@ export const anthropicAdapter: ProviderAdapter = {
   },
 
   async collectChanges(handle, req, ctx) {
-    const list = await requestJson<{ data: { id: string; filename: string }[] }>(
-      ctx.fetch,
-      `${API}/files?scope_id=${encodeURIComponent(handle.remoteId)}&limit=100`,
-      { headers: headers(ctx, `${BETA},${FILES_BETA}`), signal: ctx.signal },
-    );
-    const byName = (name: string) => list.data.find((f) => f.filename === name || f.filename.endsWith(`/${name}`));
-    const fetchNamed = async (name: string) => {
+    const list = await listOutputs(ctx, handle.remoteId);
+    const byName = (name: string) => list.find((f) => f.filename === name || f.filename.endsWith(`/${name}`));
+    const fetchNamed = async (name: string, maxBytes: number) => {
       const f = byName(name);
-      return f ? download(ctx, f.id) : null;
+      return f ? download(ctx, f.id, maxBytes) : null;
     };
     const [tar, deleted, summary, checks] = await Promise.all([
-      fetchNamed('changes.tar'),
-      fetchNamed('deleted.txt'),
-      fetchNamed('summary.md'),
-      fetchNamed('checks.json'),
+      fetchNamed('changes.tar', OUTPUT_LIMITS.archiveBytes),
+      fetchNamed('deleted.txt', OUTPUT_LIMITS.smallFileBytes),
+      fetchNamed('summary.md', OUTPUT_LIMITS.smallFileBytes),
+      fetchNamed('checks.json', OUTPUT_LIMITS.smallFileBytes),
     ]);
     return buildChangeSet({
       tar,
@@ -338,9 +381,22 @@ export const anthropicAdapter: ProviderAdapter = {
   },
 
   async disposeSandbox(handle, ctx) {
-    await request(ctx.fetch, `${API}/sessions/${handle.remoteId}`, { method: 'DELETE', headers: headers(ctx) }).catch((e) => {
-      if (!(e instanceof ProviderError && e.status === 404)) throw e;
-    });
+    // Find the session's environment before the session is gone (tasks resumed from older versions lack it in state).
+    let envId = (handle.state.providerEnvironmentId as string | undefined) ?? null;
+    if (!envId) {
+      const s = await requestJson<{ environment_id?: string }>(ctx.fetch, `${API}/sessions/${handle.remoteId}`, {
+        headers: headers(ctx),
+      }).catch(() => null);
+      envId = s?.environment_id ?? null;
+    }
+    await deleteQuietly(ctx, `/sessions/${handle.remoteId}`);
+    const legacy = await ctx.cache.get(LEGACY_SHARED_ENV);
+    if (envId && envId !== legacy) await deleteQuietly(ctx, `/environments/${envId}`);
+    // The shared environment older versions created can only be deleted once no session uses it.
+    if (legacy) {
+      const gone = await deleteQuietly(ctx, `/environments/${legacy}`).catch(() => false);
+      if (gone) await ctx.cache.set(LEGACY_SHARED_ENV, '');
+    }
   },
 
   async cleanSandbox(sessionId, paths, ctx) {

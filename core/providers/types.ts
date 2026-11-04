@@ -28,6 +28,13 @@ export type ProviderContext = {
   checkpoint: { load(): Promise<string | null>; save(json: string): Promise<void> };
   repo: RepoReader;
   isWeb: boolean;
+  /** Resolved model config (remote when available, bundled otherwise). */
+  models: ModelConfig;
+  /**
+   * Remaining token allowance under the user's hard cap (null = no cap). Throws when the cap is
+   * already reached. Adapters that call the model repeatedly check it before every call.
+   */
+  budget?: () => Promise<number | null>;
 };
 
 export interface ProviderAdapter {

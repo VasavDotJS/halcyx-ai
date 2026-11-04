@@ -1,3 +1,6 @@
+import { pruneLocalData } from '@/core/db/retention';
+import { reported } from '@/core/monitoring/report';
+import { installCrypto } from '@/core/security/installCrypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetch as expoFetch } from 'expo/fetch';
 import { Platform as RNPlatform } from 'react-native';
@@ -21,7 +24,7 @@ import type { FetchLike } from '@/core/providers/http';
 import { BUNDLED_MODEL_CONFIG, type ModelConfig } from '@/core/providers/modelConfig';
 import type { ProviderContext } from '@/core/providers/types';
 import { KeyVault } from '@/core/security/keyVault';
-import type { ProviderId } from '@/core/types';
+import { PROVIDER_IDS, type ProviderId } from '@/core/types';
 import { UsageMeter } from '@/core/usage/meter';
 import { recoverInterruptedPushes } from '@/core/workspace/pushFlow';
 import { WorkspaceStore } from '@/core/workspace/store';
@@ -54,6 +57,8 @@ const streamingFetch: FetchLike = (url, init) =>
   RNPlatform.OS === 'web' ? fetch(url, init) : (expoFetch(url, init as never) as unknown as Promise<Response>);
 
 async function build(): Promise<Services> {
+  // First step of boot (not module scope), so a missing WebCrypto shows the boot error screen.
+  installCrypto();
   const isWeb = RNPlatform.OS === 'web';
   const platform: Platform = { db: await openSqlDb(), files: createFileStore(), secrets: createSecretStore() };
   await migrate(platform.db);
@@ -87,6 +92,7 @@ async function build(): Promise<Services> {
       fetch: streamingFetch,
       isWeb,
       cache,
+      models: modelConfig,
       checkpoint: { load: () => tasks.checkpoint(taskId), save: (j) => tasks.saveCheckpoint(taskId, j) },
       repo: {
         list: async () => (paths ??= await listPaths(await github(), repoFull, baseSha())),
@@ -103,6 +109,7 @@ async function build(): Promise<Services> {
       fetch: streamingFetch,
       isWeb,
       cache,
+      models: modelConfig,
       checkpoint: { load: async () => null, save: async () => undefined },
       repo: { list: async () => [], read: async () => null },
     };
@@ -122,7 +129,7 @@ async function build(): Promise<Services> {
       if (!useSettings.getState().notifyOnFinish && kind === 'task_finished') return;
       await notifyLocal(platform.db, { kind, title, body, taskId });
       const t = await tasks.get(taskId);
-      if (t) await backend.notifyOtherDevices({ kind, task_id: taskId, repo: t.repoFull }).catch(() => undefined);
+      if (t) await backend.notifyOtherDevices({ kind, task_id: taskId, repo: t.repoFull }).catch(reported('notify.otherDevices'));
     },
     scheduleExpiryWarning,
     report: (row) => backend.logTask(row),
@@ -158,7 +165,8 @@ async function build(): Promise<Services> {
   };
 
   // Crash-safe startup: finish interrupted pushes, expire old workspaces, reattach tasks.
-  if (await githubTokens.isConnected()) await recoverInterruptedPushes(workspaces, await github()).catch(() => undefined);
+  if (await githubTokens.isConnected()) await recoverInterruptedPushes(workspaces, await github()).catch(reported('push.recover'));
+  void pruneLocalData(platform.db).catch(reported('storage.prune'));
   await workspaces.expireDue();
   void services.refreshModels();
   void runner.resumeActive();
@@ -179,7 +187,7 @@ export async function wipeAllLocalData(): Promise<void> {
   const s = await services();
   await s.supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
   for (const w of await s.workspaces.listPending()) await s.workspaces.shred(w.id, 'discarded');
-  for (const p of ['gemini', 'anthropic', 'openai'] as const) await s.keys.remove(p);
+  for (const p of PROVIDER_IDS) await s.keys.remove(p);
   await s.githubTokens.clear();
   for (const t of ['task_events', 'tasks', 'usage', 'queue', 'prompts', 'repo_settings', 'sandboxes', 'notifications', 'push_log', 'kv'])
     await s.platform.db.run(`DELETE FROM ${t}`);

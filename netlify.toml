@@ -2,6 +2,17 @@
   command = "npx expo export --platform web"
   publish = "dist"
 
+# Missing build assets must 404, not fall through to the app shell.
+[[redirects]]
+  from = "/_expo/*"
+  to = "/404.html"
+  status = 404
+
+[[redirects]]
+  from = "/assets/*"
+  to = "/404.html"
+  status = 404
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
@@ -17,6 +28,7 @@
     Permissions-Policy = "camera=(), geolocation=(), microphone=(self)"
     Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
     X-Frame-Options = "DENY"
+    Content-Security-Policy = "default-src 'self'; connect-src 'self' https://*.supabase.co https://api.github.com https://github.com https://generativelanguage.googleapis.com https://api.anthropic.com https://api.openai.com https://*.ingest.sentry.io; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; frame-src https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 
 [[headers]]
   for = "/sw.js"

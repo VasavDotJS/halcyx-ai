@@ -48,8 +48,15 @@ export function toTokens(r: ExchangeResponse, now = Date.now()): GitHubTokens {
   };
 }
 
-/** Calls an Edge Function; injected so core stays independent of the Supabase client. */
-export type FunctionInvoker = <T>(name: string, body: Record<string, unknown>) => Promise<T>;
+/**
+ * The only Edge Functions that ever receive a credential. GitHub user tokens transit them by
+ * design (the App's client secret must stay server-side); nothing is stored or logged.
+ */
+export const TOKEN_BROKER_FUNCTIONS = ['github-oauth', 'github-scoped-token'] as const;
+export type TokenBrokerFunction = (typeof TOKEN_BROKER_FUNCTIONS)[number];
+
+/** Calls a token-broker Edge Function; injected so core stays independent of the Supabase client. */
+export type FunctionInvoker = <T>(name: TokenBrokerFunction, body: Record<string, unknown>) => Promise<T>;
 
 export function createExchange(invoke: FunctionInvoker) {
   return {

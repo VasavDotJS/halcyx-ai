@@ -1,3 +1,4 @@
+import { reported } from '@/core/monitoring/report';
 import type { StorageCleaner } from '@/core/cleaner/cleaner';
 import type { GitHub } from '@/core/github/client';
 import { slugify, uniqueBranchName } from '@/core/github/push';
@@ -158,6 +159,7 @@ export class TaskRunner {
       instructions: input.instructions,
       approvalMode: s.approvalMode,
       askBeforeCommands: s.askBeforeCommands,
+      network: s.agentNetwork,
       tokenBudget,
       resume: null,
       branchSuffix: input.branchSuffix ?? null,
@@ -201,8 +203,14 @@ export class TaskRunner {
     try {
       req = await this.loadRequest(taskId);
       const adapter = adapterFor(req.provider);
-      const ctx = { ...(await this.contextFor(taskId, req)), signal: abort.signal };
       const model = findModel(this.d.models(), req.provider, req.model);
+      // Without a price the hard cap can't be enforced, so an unpriceable model never runs.
+      if (!model)
+        throw new Error(
+          `${req.model} is no longer in the model list, so HALCYX can't track its cost. Start a new task with a current model.`,
+        );
+      const budget = () => this.budgetTokens(model);
+      const ctx = { ...(await this.contextFor(taskId, req)), signal: abort.signal, budget };
       let handle: AgentTaskHandle =
         mode === 'start' ? await adapter.startAgentTask(req, ctx) : ((await this.d.tasks.handle(taskId)) as AgentTaskHandle);
       if (!handle) throw new Error('Task handle missing');
@@ -211,12 +219,15 @@ export class TaskRunner {
       await this.emit(taskId, [{ type: 'status', status: 'running' }]);
 
       for (let round = 0; round < MAX_ROUNDS; round += 1) {
+        // Re-check the cap before every provider call (follow-ups and reattaches included) and
+        // hand the agent only what is left, not the allowance computed when the task started.
+        req.tokenBudget = await budget();
         for await (const ev of adapter.streamEvents(handle, req, ctx)) {
           if (ev.type === 'status') status = ev.status;
           if (ev.type === 'meta' && ev.environmentId) {
             await this.d.cleaner.trackSandbox(ev.environmentId, req.provider, `${req.repo.owner}/${req.repo.name}`);
           }
-          if (ev.type === 'usage' && model) {
+          if (ev.type === 'usage') {
             const cost = costOf(model, ev.inputTokens, ev.outputTokens);
             await this.d.usage.record({
               taskId,
@@ -253,7 +264,17 @@ export class TaskRunner {
       await this.afterTurn(taskId, req, handle, status, ctx);
     } catch (e) {
       if (abort.signal.aborted) return;
-      const message = (e as Error).message;
+      if (e instanceof BudgetExceededError && req) {
+        const h = (await this.d.tasks.handle(taskId).catch(() => null)) as AgentTaskHandle | null;
+        if (h) {
+          const c = await this.contextFor(taskId, req).catch(() => null);
+          if (c)
+            await adapterFor(req.provider)
+              .cancel(h, c)
+              .catch(() => undefined);
+        }
+      }
+      const message = e instanceof BudgetExceededError ? 'Monthly hard cap reached' : (e as Error).message;
       await this.emit(taskId, [
         { type: 'error', message },
         { type: 'status', status: 'failed', detail: message },
@@ -486,6 +507,6 @@ export class TaskRunner {
         started_at: new Date(t?.createdAt ?? this.now()).toISOString(),
         finished_at: TERMINAL.includes(status as TaskStatus) || status === 'pushed' ? new Date(this.now()).toISOString() : null,
       })
-      .catch(() => undefined);
+      .catch(reported('task.report'));
   }
 }

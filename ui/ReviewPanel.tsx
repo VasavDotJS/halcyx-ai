@@ -139,6 +139,11 @@ export function ReviewPanel({ workspaceId, onDone }: { workspaceId: string; onDo
         </Row>
         <Text variant="mono">{outcome.commitSha.slice(0, 12)}</Text>
         <Text tone="muted">The local copy was erased and its encryption key destroyed. Only metadata remains in history.</Text>
+        {outcome.warnings.map((m) => (
+          <Text key={m} tone="warning" accessibilityLiveRegion="polite">
+            {m}
+          </Text>
+        ))}
         {outcome.prUrl ? (
           <Button title="Open pull request" icon={GitMerge} onPress={() => void WebBrowser.openBrowserAsync(outcome.prUrl!)} />
         ) : null}
@@ -183,6 +188,19 @@ export function ReviewPanel({ workspaceId, onDone }: { workspaceId: string; onDo
             Summary
           </Text>
           <MessageText text={w.meta.summary} />
+        </Card>
+      ) : null}
+
+      {w.meta.skipped?.length ? (
+        <Card className="gap-1 border-warning" accessibilityRole="alert">
+          <Text variant="label" tone="warning">
+            {w.meta.skipped.length} changed file{w.meta.skipped.length > 1 ? 's were' : ' was'} too large to review here and won’t be pushed
+          </Text>
+          {w.meta.skipped.slice(0, 12).map((f) => (
+            <Text key={f.path} variant="monoSmall">
+              {f.path} ({formatBytes(f.bytes)})
+            </Text>
+          ))}
         </Card>
       ) : null}
 
@@ -289,7 +307,7 @@ export function ReviewPanel({ workspaceId, onDone }: { workspaceId: string; onDo
             {error}
           </Text>
         ) : null}
-        <Button title="Check & push" icon={Upload} full loading={busy === 'check'} onPress={runPreflight} />
+        <Button title="Check changes" icon={Upload} full loading={busy === 'check'} onPress={runPreflight} />
         <Button
           title="Discard changes"
           variant="ghost"
@@ -327,6 +345,18 @@ export function ReviewPanel({ workspaceId, onDone }: { workspaceId: string; onDo
                 <Text>No secrets detected</Text>
               </Row>
             )}
+            {check.unscanned.length ? (
+              <Card className="gap-1 border-warning">
+                <Text variant="label" tone="warning">
+                  {check.unscanned.length} file{check.unscanned.length > 1 ? 's' : ''} too large to scan for secrets on this device
+                </Text>
+                {check.unscanned.slice(0, 12).map((f) => (
+                  <Text key={f.path} variant="monoSmall">
+                    {f.path} ({formatBytes(f.bytes)})
+                  </Text>
+                ))}
+              </Card>
+            ) : null}
             {check.largeFiles.map((f) => (
               <Text key={f.path} tone={f.blocking ? 'danger' : 'warning'}>
                 {f.blocking ? 'Too large for GitHub' : 'Large file'}: {f.path} ({formatBytes(f.bytes)})
@@ -335,7 +365,7 @@ export function ReviewPanel({ workspaceId, onDone }: { workspaceId: string; onDo
             <Text tone="muted">
               Sandbox lint: {check.checks.lint.status.replace('_', ' ')} · tests: {check.checks.tests.status.replace('_', ' ')}
             </Text>
-            {check.blocked && !check.secrets.length ? <Text tone="danger">{check.blockReasons.join(' · ')}</Text> : null}
+            {check.blocked ? <Text tone="danger">{check.blockReasons.join(' · ')}</Text> : null}
             {!check.blocked ? (
               <Button
                 title={toBase ? `Push to ${w.meta.baseBranch}` : `Push ${openPr ? '& open PR' : ''}`}
@@ -344,7 +374,7 @@ export function ReviewPanel({ workspaceId, onDone }: { workspaceId: string; onDo
                 loading={busy === 'push'}
                 onPress={() => push(false)}
               />
-            ) : check.secrets.length && check.blockReasons.length === 1 ? (
+            ) : check.overridable ? (
               <Button title="Push anyway (I’ve checked these)" variant="danger" full loading={busy === 'push'} onPress={() => push(true)} />
             ) : null}
           </>

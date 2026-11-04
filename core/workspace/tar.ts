@@ -3,6 +3,10 @@
  * Used to unpack the change archive the sandbox hands back.
  */
 export type TarEntry = { path: string; bytes: Uint8Array };
+export type TarLimits = { maxEntries: number; maxEntryBytes: number };
+export type TarRead = { entries: TarEntry[]; skipped: { path: string; bytes: number }[] };
+
+export class TarLimitError extends Error {}
 
 const BLOCK = 512;
 const decoder = new TextDecoder();
@@ -36,7 +40,16 @@ function parsePax(data: Uint8Array): Record<string, string> {
 }
 
 export function readTar(buf: Uint8Array): TarEntry[] {
+  return readTarLimited(buf, { maxEntries: Number.POSITIVE_INFINITY, maxEntryBytes: Number.POSITIVE_INFINITY }).entries;
+}
+
+/**
+ * Reads an archive without trusting it: more than `maxEntries` files throws, and files larger
+ * than `maxEntryBytes` are reported in `skipped` instead of being copied into memory.
+ */
+export function readTarLimited(buf: Uint8Array, limits: TarLimits): TarRead {
   const entries: TarEntry[] = [];
+  const skipped: TarRead['skipped'] = [];
   let off = 0;
   let longName: string | null = null;
   let paxPath: string | null = null;
@@ -65,10 +78,15 @@ export function readTar(buf: Uint8Array): TarEntry[] {
     longName = null;
     paxPath = null;
     if (type === '0' || type === '\0' || type === '7') {
-      entries.push({ path: path.replace(/^\.\//, ''), bytes: data.slice() });
+      if (entries.length + skipped.length >= limits.maxEntries) {
+        throw new TarLimitError(`The agent returned more than ${limits.maxEntries} files. Ask it for a smaller change.`);
+      }
+      const clean = path.replace(/^\.\//, '');
+      if (size > limits.maxEntryBytes) skipped.push({ path: clean, bytes: size });
+      else entries.push({ path: clean, bytes: data.slice() });
     }
   }
-  return entries;
+  return { entries, skipped };
 }
 
 /** Writes a ustar archive (used by tests and by the cleaner's remote manifest fixtures). */

@@ -32,6 +32,23 @@ export default function AgentBehaviour() {
         />
       </Section>
 
+      <Section
+        title="Sandbox internet access"
+        footer={
+          s.agentNetwork === 'open'
+            ? 'Unrestricted: a malicious file in the repository (README, comments, issues) could instruct the agent to upload your private code anywhere. Use only for repositories you trust.'
+            : 'The agent can reach package registries and the repository host only. Code can’t be sent to other sites. GitHub access uses a read-only token for this one repository.'
+        }
+      >
+        <Toggle
+          label="Allow unrestricted internet"
+          detail="Needed only if the build downloads from other sites"
+          value={s.agentNetwork === 'open'}
+          onChange={(v) => s.update({ agentNetwork: v ? 'open' : 'registries' })}
+          last
+        />
+      </Section>
+
       <Text variant="label">Keep unpushed changes for</Text>
       <Segmented
         label="Retention"

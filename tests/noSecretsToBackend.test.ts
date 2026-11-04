@@ -61,3 +61,37 @@ describe('crash report scrubbing', () => {
     expect((v.extra as Record<string, unknown>).count).toBe(3);
   });
 });
+
+describe('the token-broker exception is narrow', () => {
+  // GitHub user tokens do transit the github-oauth / github-scoped-token functions by design
+  // (the GitHub App secret must stay server-side). Nothing else may use that path.
+  function backendWith(invoke: jest.Mock) {
+    const { createBackendApi } = jest.requireActual<typeof import('@/core/backend/api')>('@/core/backend/api');
+    return createBackendApi({ functions: { invoke }, auth: {}, from: jest.fn(), rpc: jest.fn() } as never);
+  }
+
+  it('only invokes the two token-broker functions', async () => {
+    const invoke = jest.fn().mockResolvedValue({ data: { ok: true }, error: null });
+    const api = backendWith(invoke);
+    await expect(api.invoke('github-oauth', { grant_type: 'refresh_token', refresh_token: 'r' })).resolves.toEqual({ ok: true });
+    await expect(api.invoke('notify' as never, { anything: SOURCE })).rejects.toBeInstanceOf(MetadataViolation);
+    await expect(api.invoke('delete-account' as never, {})).rejects.toBeInstanceOf(MetadataViolation);
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('never stores a secret-looking device name', async () => {
+    const rpc = jest.fn().mockResolvedValue({ error: null });
+    const { createBackendApi } = jest.requireActual<typeof import('@/core/backend/api')>('@/core/backend/api');
+    const api = createBackendApi({ functions: { invoke: jest.fn() }, auth: {}, from: jest.fn(), rpc } as never);
+    await api.registerDevice({
+      device_id: 'dev1',
+      name: GOOGLE_KEY,
+      platform: 'ios',
+      push_token: null,
+      app_version: '1.0.0',
+      session_id: null,
+    });
+    expect(rpc).toHaveBeenCalledWith('register_device', expect.objectContaining({ p_name: 'ios' }));
+    expect(JSON.stringify(rpc.mock.calls)).not.toContain(GOOGLE_KEY);
+  });
+});

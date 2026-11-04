@@ -4,7 +4,7 @@ import { Pressable, Switch, TextInput, type TextInputProps, View } from 'react-n
 import { haptic } from '../haptics';
 import { useTheme } from '../ThemeProvider';
 import { Divider } from './Layout';
-import { Text } from './Text';
+import { MAX_FONT_SCALE, Text } from './Text';
 
 export function Input({
   label,
@@ -19,6 +19,7 @@ export function Input({
     <View className="gap-1.5">
       {label ? <Text variant="label">{label}</Text> : null}
       <TextInput
+        maxFontSizeMultiplier={MAX_FONT_SCALE}
         placeholderTextColor={t.colors.muted}
         selectionColor={t.colors.accent}
         accessibilityLabel={label ?? rest.placeholder}

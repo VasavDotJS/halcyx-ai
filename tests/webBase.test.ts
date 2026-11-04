@@ -22,7 +22,7 @@ describe('GitHub Pages base path', () => {
   });
 
   it('builds auth redirect URLs under the base path on web', () => {
-    const { appUrl } = jest.requireActual<typeof import('@/core/app/links')>('@/core/app/links');
+    const { appUrl } = jest.requireActual<typeof import('@/core/platform/links')>('@/core/platform/links');
     const g = globalThis as { location?: { origin: string } };
     const prev = g.location;
     g.location = { origin: 'https://vasavdotjs.github.io' };

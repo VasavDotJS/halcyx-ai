@@ -1,9 +1,8 @@
 import { toBase64, utf8 } from '@/core/security/crypto';
 import type { AgentEvent, AgentTaskRequest, KeyValidation, StepKind } from '@/core/types';
 import { mapEffort, GEMINI_AGENT_BUDGET } from './effort';
-import { APPROVAL_TOOL, agentRules, buildChangeSet, decodeOrNull, findPreviewUrl, REPO_DIR } from './handoff';
+import { APPROVAL_TOOL, agentRules, buildChangeSet, decodeOrNull, findPreviewUrl, OUTPUT_LIMITS, REPO_DIR } from './handoff';
 import { type FetchLike, ProviderError, request, requestBytes, requestJson, streamBody } from './http';
-import { BUNDLED_MODEL_CONFIG } from './modelConfig';
 import { sseJson } from './sse';
 import type { ProviderAdapter, ProviderContext } from './types';
 import { remoteCleanCommand } from '@/core/cleaner/patterns';
@@ -32,26 +31,61 @@ type GeminiEvent = {
 };
 type Usage = { total_input_tokens?: number; total_output_tokens?: number; total_thought_tokens?: number };
 
-function agentId(): string {
-  return BUNDLED_MODEL_CONFIG.agents.gemini;
+function agentId(ctx: Pick<ProviderContext, 'models'>): string {
+  return ctx.models.agents.gemini;
+}
+
+/**
+ * Hosts a coding agent needs to install dependencies. Exact hostnames: the egress proxy
+ * supports no path prefixes, so GitHub access is limited by the token instead (read-only,
+ * one repository).
+ */
+export const PACKAGE_REGISTRY_HOSTS = [
+  'registry.npmjs.org',
+  'registry.yarnpkg.com',
+  'nodejs.org',
+  'pypi.org',
+  'files.pythonhosted.org',
+  'crates.io',
+  'static.crates.io',
+  'index.crates.io',
+  'proxy.golang.org',
+  'sum.golang.org',
+  'repo.maven.apache.org',
+  'repo1.maven.org',
+  'plugins.gradle.org',
+  'services.gradle.org',
+  'rubygems.org',
+  'index.rubygems.org',
+  'repo.packagist.org',
+  'deb.debian.org',
+  'archive.ubuntu.com',
+  'security.ubuntu.com',
+  'codeload.github.com',
+  'objects.githubusercontent.com',
+] as const;
+
+/**
+ * Default-deny egress: package registries plus github.com (with the read-only token header
+ * when the repo is private). "open" restores unrestricted access, only when the user opts in.
+ */
+export function networkFor(req: AgentTaskRequest) {
+  const github = req.readToken
+    ? { domain: 'github.com', transform: { Authorization: `Basic ${toBase64(utf8.encode(`x-oauth-basic:${req.readToken}`))}` } }
+    : { domain: 'github.com' };
+  const open = (req.network ?? 'registries') === 'open';
+  return { allowlist: [github, ...(open ? [{ domain: '*' }] : PACKAGE_REGISTRY_HOSTS.map((domain) => ({ domain })))] };
 }
 
 function environmentFor(req: AgentTaskRequest) {
-  const network = req.readToken
-    ? {
-        allowlist: [
-          { domain: 'github.com', transform: { Authorization: `Basic ${toBase64(utf8.encode(`x-oauth-basic:${req.readToken}`))}` } },
-          { domain: '*' },
-        ],
-      }
-    : undefined;
+  const network = networkFor(req);
   return {
     type: 'remote',
     sources: [
       { type: 'repository', source: `https://github.com/${req.repo.owner}/${req.repo.name}`, target: REPO_DIR },
       { type: 'inline', target: '.agents/AGENTS.md', content: agentRules(req, OUT_DIR) },
     ],
-    ...(network ? { network } : {}),
+    network,
   };
 }
 
@@ -63,7 +97,8 @@ function agentConfig(req: AgentTaskRequest) {
 
 function tools(req: AgentTaskRequest) {
   if (!req.approvalMode && !req.askBeforeCommands) return undefined;
-  return [{ type: 'code_execution' }, { type: 'google_search' }, { type: 'url_context' }, { type: 'function', ...APPROVAL_TOOL }];
+  // No url_context: fetching arbitrary URLs is an exfiltration channel that bypasses the sandbox allowlist.
+  return [{ type: 'code_execution' }, { type: 'google_search' }, { type: 'function', ...APPROVAL_TOOL }];
 }
 
 function stepKind(type: string, name?: string): StepKind {
@@ -97,12 +132,14 @@ function mapStatus(s: string | undefined): AgentEvent {
   }
 }
 
-async function downloadFile(ctx: ProviderContext, envId: string, path: string): Promise<Uint8Array | null> {
+async function downloadFile(ctx: ProviderContext, envId: string, path: string, maxBytes: number): Promise<Uint8Array | null> {
   try {
-    return await requestBytes(ctx.fetch, `${API}/environments/${envId}/files/${path}?alt=media`, {
-      headers: { 'x-goog-api-key': ctx.apiKey },
-      signal: ctx.signal,
-    });
+    return await requestBytes(
+      ctx.fetch,
+      `${API}/environments/${envId}/files/${path}?alt=media`,
+      { headers: { 'x-goog-api-key': ctx.apiKey }, signal: ctx.signal },
+      maxBytes,
+    );
   } catch (e) {
     if (e instanceof ProviderError && e.status === 404) return null;
     throw e;
@@ -113,7 +150,7 @@ async function createInteraction(ctx: ProviderContext, body: Record<string, unkn
   return requestJson<{ id: string; environment_id?: string; status?: string }>(ctx.fetch, `${API}/interactions`, {
     method: 'POST',
     headers: headers(ctx.apiKey),
-    body: JSON.stringify({ agent: agentId(), background: true, ...body }),
+    body: JSON.stringify({ agent: agentId(ctx), background: true, ...body }),
     signal: ctx.signal,
   });
 }
@@ -161,15 +198,13 @@ export const geminiAdapter: ProviderAdapter = {
       return;
     }
     const body: Record<string, unknown> = {
-      agent: agentId(),
+      agent: agentId(ctx),
       input: pending,
       stream: true,
       background: true,
       agent_config: agentConfig(req),
       environment: handle.environmentId
-        ? req.readToken
-          ? { type: 'remote', environment_id: handle.environmentId, network: environmentFor(req).network }
-          : handle.environmentId
+        ? { type: 'remote', environment_id: handle.environmentId, network: networkFor(req) }
         : environmentFor(req),
     };
     if (handle.state.previousId) body.previous_interaction_id = handle.state.previousId;
@@ -357,10 +392,10 @@ export const geminiAdapter: ProviderAdapter = {
     if (!handle.environmentId) throw new ProviderError('The sandbox environment is unknown', 0, 'server');
     const env = handle.environmentId;
     const [tar, deleted, summary, checks] = await Promise.all([
-      downloadFile(ctx, env, `${ENV_OUT}/changes.tar`),
-      downloadFile(ctx, env, `${ENV_OUT}/deleted.txt`),
-      downloadFile(ctx, env, `${ENV_OUT}/summary.md`),
-      downloadFile(ctx, env, `${ENV_OUT}/checks.json`),
+      downloadFile(ctx, env, `${ENV_OUT}/changes.tar`, OUTPUT_LIMITS.archiveBytes),
+      downloadFile(ctx, env, `${ENV_OUT}/deleted.txt`, OUTPUT_LIMITS.smallFileBytes),
+      downloadFile(ctx, env, `${ENV_OUT}/summary.md`, OUTPUT_LIMITS.smallFileBytes),
+      downloadFile(ctx, env, `${ENV_OUT}/checks.json`, OUTPUT_LIMITS.smallFileBytes),
     ]);
     return buildChangeSet({
       tar,

@@ -178,6 +178,8 @@ export const openaiAdapter: ProviderAdapter = {
         return;
       }
       cp.turns += 1;
+      // Hard cap: checked before every call (throws when reached); output is limited to what's left.
+      const remaining = ctx.budget ? await ctx.budget() : req.tokenBudget;
       const res = await request(ctx.fetch, `${API}/responses`, {
         method: 'POST',
         headers: { authorization: `Bearer ${ctx.apiKey}`, 'content-type': 'application/json', accept: 'text/event-stream' },
@@ -190,7 +192,7 @@ export const openaiAdapter: ProviderAdapter = {
           stream: true,
           store: false,
           include: ['reasoning.encrypted_content'],
-          ...(req.tokenBudget ? { max_output_tokens: Math.min(req.tokenBudget, 128_000) } : {}),
+          ...(remaining !== null ? { max_output_tokens: Math.max(256, Math.min(remaining, 128_000)) } : {}),
         }),
         signal: ctx.signal,
       });

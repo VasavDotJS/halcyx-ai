@@ -358,7 +358,7 @@ Public values, bundled into the client. Provider keys are **not** configured her
 | --- | --- | --- |
 | `GITHUB_APP_CLIENT_ID` / `GITHUB_APP_CLIENT_SECRET` | `github-oauth`, `github-scoped-token` | Code exchange, refresh, scoped token minting |
 | `GITHUB_REDIRECT_URIS` | `github-oauth` | Comma-separated allow-list of redirect URIs |
-| `ALLOWED_ORIGIN` | all | Your PWA origin; set it in production |
+| `ALLOWED_ORIGIN` | all | **Required for the web app.** Comma-separated PWA origins, e.g. `https://vasavdotjs.github.io`. Unset = browsers are refused (native apps unaffected). |
 | `DIGEST_SECRET` | `email-digest` | Shared secret with the cron job, 32+ random characters |
 | `RESEND_API_KEY` / `DIGEST_FROM` | `email-digest` | Only if the digest is enabled |
 

@@ -41,6 +41,10 @@ const MIGRATIONS: string[] = [
    CREATE TABLE IF NOT EXISTS notifications (
      id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL, kind TEXT NOT NULL,
      task_id TEXT, created_at INTEGER NOT NULL, read INTEGER NOT NULL DEFAULT 0);`,
+  // 2: indexes for month-to-date spend, history and pruning (audit M-6).
+  `CREATE INDEX IF NOT EXISTS usage_at ON usage(at);
+   CREATE INDEX IF NOT EXISTS tasks_created ON tasks(created_at);
+   CREATE INDEX IF NOT EXISTS notifications_created ON notifications(created_at);`,
 ];
 
 export async function migrate(db: SqlDb): Promise<void> {

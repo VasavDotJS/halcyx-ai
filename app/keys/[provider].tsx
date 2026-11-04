@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Eye, EyeOff, RefreshCw, Trash2 } from 'lucide-react-native';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { PROVIDERS } from '@/core/providers/registry';
 import { authenticate } from '@/core/security/biometrics';
 import { maskKey } from '@/core/security/keyFormat';
@@ -20,11 +20,22 @@ const HELP: Record<ProviderId, string> = {
 };
 
 export default function KeyDetail() {
-  const { provider } = useLocalSearchParams<{ provider: ProviderId }>();
+  const { provider, next } = useLocalSearchParams<{ provider: ProviderId; next?: string }>();
+  // Only in-app onboarding targets are honoured, so the param can't redirect anywhere else.
+  const nextStep = typeof next === 'string' && /^\/onboarding\/[a-z-]+$/.test(next) ? next : null;
   const s = useReadyServices();
   const qc = useQueryClient();
   const adapter = PROVIDERS[provider];
   const [revealed, setRevealed] = useState<string | null>(null);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hide = useCallback(() => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = null;
+    setRevealed(null);
+  }, []);
+  // A revealed key never outlives the screen: cleared on blur/navigation and on unmount.
+  useFocusEffect(useCallback(() => hide, [hide]));
+  useEffect(() => hide, [hide]);
   const [replacing, setReplacing] = useState(false);
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -58,6 +69,7 @@ export default function KeyDetail() {
         text: v.status === 'quota_exceeded' ? 'Saved, but the account is out of quota.' : 'Saved on this device only.',
       });
       refresh();
+      if (nextStep) router.replace(nextStep as never);
     } catch (e) {
       setMsg({ tone: 'danger', text: (e as Error).message });
     } finally {
@@ -75,7 +87,8 @@ export default function KeyDetail() {
         <GoogleKeyConcierge
           onDone={() => {
             refresh();
-            router.back();
+            if (nextStep) router.replace(nextStep as never);
+            else router.back();
           }}
         />
       </Screen>
@@ -97,10 +110,11 @@ export default function KeyDetail() {
               icon={revealed ? EyeOff : Eye}
               title={revealed ? 'Hide' : 'Reveal'}
               onPress={async () => {
-                if (revealed) return setRevealed(null);
+                if (revealed) return hide();
                 if (await authenticate('Reveal API key')) {
                   setRevealed(await s.keys.get(provider));
-                  setTimeout(() => setRevealed(null), 20_000);
+                  if (hideTimer.current) clearTimeout(hideTimer.current);
+                  hideTimer.current = setTimeout(hide, 20_000);
                 }
               }}
             />

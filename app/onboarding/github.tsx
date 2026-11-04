@@ -33,7 +33,7 @@ export default function OnboardingGitHub() {
           setBusy(true);
           setError(null);
           try {
-            if (await connectGitHub(s)) router.push('/onboarding/repo');
+            if (await connectGitHub(s, '/onboarding/repo')) router.push('/onboarding/repo');
           } catch (e) {
             setError((e as Error).message);
           } finally {

@@ -76,10 +76,33 @@ export function generateKeyMaterial(): string {
   return toBase64(randomBytes(32));
 }
 
-async function importKey(material: string): Promise<CryptoKey> {
+/**
+ * Imported (non-extractable) keys are cached per key material for the life of the process,
+ * so sealing many files doesn't re-import the key each time. Small and bounded; entries are
+ * dropped explicitly with `forgetKey` when a workspace is shredded.
+ */
+const KEY_CACHE_MAX = 16;
+const keyCache = new Map<string, Promise<CryptoKey>>();
+
+function importKey(material: string): Promise<CryptoKey> {
+  const hit = keyCache.get(material);
+  if (hit) {
+    keyCache.delete(material);
+    keyCache.set(material, hit);
+    return hit;
+  }
   const raw = fromBase64(material);
-  if (raw.length !== 32) throw new Error('Key material must be 256 bits');
-  return subtle().importKey('raw', bufferSource(raw), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  if (raw.length !== 32) return Promise.reject(new Error('Key material must be 256 bits'));
+  const key = subtle().importKey('raw', bufferSource(raw), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  key.catch(() => keyCache.delete(material));
+  keyCache.set(material, key);
+  if (keyCache.size > KEY_CACHE_MAX) keyCache.delete(keyCache.keys().next().value!);
+  return key;
+}
+
+/** Drops a cached imported key (call when the key material is destroyed). */
+export function forgetKey(material: string): void {
+  keyCache.delete(material);
 }
 
 /** Sealed format: [version:1][iv:12][ciphertext+tag]. `aad` binds the blob to its context. */

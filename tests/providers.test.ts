@@ -58,6 +58,7 @@ function ctx(fetchImpl: ProviderContext['fetch'], extra: Partial<ProviderContext
     cache: { get: async (k) => cache.get(k) ?? null, set: async (k, v) => void cache.set(k, v) },
     checkpoint: { load: async () => cp, save: async (j) => void (cp = j) },
     repo: { list: async () => ['src/a.ts'], read: async () => utf8.encode('export const a = 1;\n') },
+    models: BUNDLED_MODEL_CONFIG,
     ...extra,
   };
 }

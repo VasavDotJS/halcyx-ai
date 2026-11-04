@@ -1,7 +1,8 @@
 import { blend, ensureContrast, readableOn, toVarTriplet } from './color';
 
-export type ThemeName = 'midnight' | 'paper' | 'graphite' | 'aurora' | 'high-contrast';
-export type ThemePreference = 'system' | ThemeName;
+import type { ThemeName, ThemePreference } from '@/core/types';
+
+export type { ThemeName, ThemePreference };
 
 export type ColorTokens = {
   bg: string;

@@ -1,3 +1,4 @@
+import { maskKey } from './keyFormat';
 import { SECRET_RULES, SENSITIVE_PATHS } from './secretRules';
 
 export type SecretFinding = {
@@ -21,10 +22,8 @@ export function shannonEntropy(s: string): number {
   return h;
 }
 
-export function redact(secret: string): string {
-  if (secret.length <= 8) return '••••';
-  return `${secret.slice(0, 4)}••••${secret.slice(-3)}`;
-}
+/** Scanner previews use the same masking as saved keys (one implementation). */
+export const redact = (secret: string): string => maskKey(secret);
 
 const PLACEHOLDER = /(x{6,}|your[_-]?|example|placeholder|changeme|dummy|<[^>]+>|\$\{)/i;
 

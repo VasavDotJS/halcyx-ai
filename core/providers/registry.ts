@@ -1,4 +1,4 @@
-import type { ProviderId } from '@/core/types';
+import { PROVIDER_IDS, type ProviderId } from '@/core/types';
 import { anthropicAdapter } from './anthropic';
 import { geminiAdapter } from './gemini';
 import { openaiAdapter } from './openai';
@@ -11,7 +11,7 @@ export const PROVIDERS: Record<ProviderId, ProviderAdapter> = {
   openai: openaiAdapter,
 };
 
-export const PROVIDER_ORDER: ProviderId[] = ['gemini', 'anthropic', 'openai'];
+export const PROVIDER_ORDER: readonly ProviderId[] = PROVIDER_IDS;
 
 export function adapterFor(id: ProviderId): ProviderAdapter {
   return PROVIDERS[id];

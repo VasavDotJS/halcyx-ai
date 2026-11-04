@@ -1,3 +1,4 @@
+import { mapLimit } from '@/core/util/concurrency';
 import type { Platform } from '@/core/platform/types';
 import { openLocal, sealLocal } from '@/core/security/dataKey';
 import type { AgentEvent, AgentTaskHandle, AgentTaskRequest, Effort, ProviderId, TaskStatus } from '@/core/types';
@@ -44,18 +45,31 @@ type Row = {
 export type StoredRequest = Omit<AgentTaskRequest, 'readToken'>;
 
 /** Local task history. Prompts, requests and event payloads are sealed with the device key. */
+/** Event batches (≤50 events each) loaded per task; enough for any real task, bounded for runaway ones. */
+const MAX_EVENT_BATCHES = 1_000;
+
 export class TaskStore {
   private seq = new Map<string, number>();
+  /** Decrypted titles, so history search doesn't decrypt every row on each keystroke. */
+  private titles = new Map<string, string>();
 
   constructor(
     private readonly p: Platform,
     private readonly now: () => number = Date.now,
   ) {}
 
+  private async title(r: Row): Promise<string> {
+    const hit = this.titles.get(r.id);
+    if (hit !== undefined) return hit;
+    const t = await openLocal(this.p.secrets, r.title_enc, `task:${r.id}:title`);
+    this.titles.set(r.id, t);
+    return t;
+  }
+
   private async toRecord(r: Row): Promise<TaskRecord> {
     return {
       id: r.id,
-      title: await openLocal(this.p.secrets, r.title_enc, `task:${r.id}:title`),
+      title: await this.title(r),
       repoFull: r.repo_full,
       provider: r.provider,
       model: r.model,
@@ -149,10 +163,10 @@ export class TaskStore {
     return Promise.all(rows.map((r) => this.toRecord(r)));
   }
 
-  /** Full-text search over decrypted titles and repo names (history is small and local). */
+  /** Search over titles and repo names. Titles are decrypted once and cached; callers debounce input. */
   async search(query: string): Promise<TaskRecord[]> {
     const q = query.trim().toLowerCase();
-    const all = await this.list(1000);
+    const all = await this.list(500);
     return q ? all.filter((t) => t.title.toLowerCase().includes(q) || t.repoFull.toLowerCase().includes(q)) : all;
   }
 
@@ -173,13 +187,18 @@ export class TaskStore {
 
   async events(id: string): Promise<AgentEvent[]> {
     const rows = await this.p.db.all<{ seq: number; payload_enc: string }>(
-      'SELECT seq, payload_enc FROM task_events WHERE task_id = ? ORDER BY seq',
-      [id],
+      'SELECT seq, payload_enc FROM task_events WHERE task_id = ? ORDER BY seq DESC LIMIT ?',
+      [id, MAX_EVENT_BATCHES],
     );
-    const out: AgentEvent[] = [];
-    for (const r of rows)
-      out.push(...(JSON.parse(await openLocal(this.p.secrets, r.payload_enc, `task:${id}:ev:${r.seq}`)) as AgentEvent[]));
-    return out;
+    rows.reverse();
+    const batches = await mapLimit(rows, 8, async (r) => {
+      try {
+        return JSON.parse(await openLocal(this.p.secrets, r.payload_enc, `task:${id}:ev:${r.seq}`)) as AgentEvent[];
+      } catch {
+        return [] as AgentEvent[];
+      }
+    });
+    return batches.flat();
   }
 
   async checkpoint(id: string): Promise<string | null> {

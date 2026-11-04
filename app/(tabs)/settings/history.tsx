@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { Search } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { useReadyServices } from '@/hooks/useServices';
 import { Badge, EmptyState, Screen, Text } from '@/ui/primitives';
+import { MAX_FONT_SCALE } from '@/ui/primitives/Text';
 import { relativeTime, TaskRow } from '@/ui/TaskList';
 import { useTheme } from '@/ui/ThemeProvider';
 
@@ -11,13 +12,19 @@ export default function HistoryScreen() {
   const s = useReadyServices();
   const t = useTheme();
   const [q, setQ] = useState('');
-  const tasks = useQuery({ queryKey: ['history', q], queryFn: () => s.tasks.search(q) });
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setQuery(q), 250);
+    return () => clearTimeout(id);
+  }, [q]);
+  const tasks = useQuery({ queryKey: ['history', query], queryFn: () => s.tasks.search(query), placeholderData: (prev) => prev });
   const pushes = useQuery({ queryKey: ['push-log-all'], queryFn: () => s.workspaces.pushLog(200) });
   return (
     <Screen title="History">
       <View className="min-h-[44px] flex-row items-center gap-2 rounded-md border-hairline border-hairline bg-surface px-3">
         <Search size={16} color={t.colors.muted} />
         <TextInput
+          maxFontSizeMultiplier={MAX_FONT_SCALE}
           value={q}
           onChangeText={setQ}
           placeholder="Search tasks or repos"

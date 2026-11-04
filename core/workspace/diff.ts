@@ -31,17 +31,13 @@ function toOps(oldText: string, newText: string): Op[] {
 function assignHunks(ops: Op[], context: number): Hunk[] {
   const hunks: Hunk[] = [];
   let i = 0;
+  let prevEnd = 0; // end index (exclusive) of the previous hunk — tracked, not searched, to stay linear
   while (i < ops.length) {
     if (ops[i]!.kind === ' ') {
       i += 1;
       continue;
     }
-    let start = Math.max(0, i - context);
-    if (hunks.length) {
-      const prev = hunks[hunks.length - 1]!;
-      const prevEnd = ops.indexOf(prev.lines[prev.lines.length - 1] as Op) + 1;
-      start = Math.max(start, prevEnd);
-    }
+    const start = Math.max(0, i - context, prevEnd);
     let end = i;
     let gap = 0;
     for (let j = i; j < ops.length; j += 1) {
@@ -54,6 +50,7 @@ function assignHunks(ops: Op[], context: number): Hunk[] {
       }
     }
     const stop = Math.min(ops.length, end + 1 + context);
+    prevEnd = stop;
     const index = hunks.length;
     const lines = ops.slice(start, stop);
     for (const l of lines) if (l.kind !== ' ') l.hunk = index;

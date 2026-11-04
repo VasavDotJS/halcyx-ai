@@ -28,18 +28,20 @@ recorded here with the reason. Facts about third-party APIs were verified agains
 
 ## 2. Agents and providers
 
-- **D-2.1 REST + SSE over vendor SDKs.** The official SDKs pull in Node built-ins and don't stream on React Native. HALCYX uses typed
-  `fetch` wrappers (`core/providers/http.ts`, `sse.ts`) with `expo/fetch` for streaming bodies on native. Fewer dependencies, one
-  code path on all four platforms.
+- **D-2.1 REST + SSE for model providers; Octokit for GitHub.** Provider SDKs pull in Node built-ins and don't stream on React
+  Native, so providers use typed `fetch` wrappers (`core/providers/http.ts`, `sse.ts`) with `expo/fetch` for streaming bodies on
+  native. GitHub uses `@octokit/rest`, which runs on `fetch` everywhere and covers pagination and ~15 endpoints; replacing it with a
+  hand-rolled client was judged riskier than its bundle cost (audit M-15). `diff` stays for its proven Myers implementation.
 - **D-2.2 Gemini runs Google Antigravity via the Interactions API** (`POST /v1beta/interactions`, agent
   `antigravity-preview-09-2026`, `environment: "remote"`). The repo is mounted with a `repository` source and the scoped read token
   injected through the environment's network `transform` headers for `github.com` only.
 - **D-2.3 Effort for Antigravity maps to a token budget.** The agent config exposes `max_total_tokens` but no thinking-level knob, so
   Low/Med/High map to 400k / 1.5M / 4M total tokens (`GEMINI_AGENT_BUDGET`). Max is disabled for Gemini models because the docs list
   only low/medium/high thinking levels for them. The cost/speed estimate under the slider uses the same numbers.
-- **D-2.4 Anthropic uses Managed Agents** (beta header `managed-agents-2026-04-01`): one agent + cloud environment per user, a session
-  per task with `agent_with_overrides` for model + effort, and the repo attached as a `github_repository` resource with the scoped token.
-  Effort maps 1:1 (low/medium/high/max).
+- **D-2.4 Anthropic uses Managed Agents** (beta header `managed-agents-2026-04-01`): one agent per user, and a cloud environment +
+  session **per task**, both deleted after push so nothing lingers (the shared environment older versions created is removed once
+  unused). Model and effort via `agent_with_overrides`; the repo is a `github_repository` resource with the scoped read token.
+  Output files are paginated; more than 1,000 fails loudly rather than truncating.
 - **D-2.5 OpenAI has no hosted coding sandbox in the Responses API**, so the OpenAI adapter runs a tool-calling loop **on the device**
   (read/list/write/delete file tools over the workspace overlay, repo reads via the GitHub API). It sends `store: false` and uses
   encrypted reasoning items so nothing persists at OpenAI between turns. It can't run tests or shell commands; the model picker
@@ -59,6 +61,17 @@ recorded here with the reason. Facts about third-party APIs were verified agains
   defaulting to the provider default.
 - **D-2.10 Multi-agent compare** starts the same prompt on 2–3 provider/model pairs as a group; each gets its own workspace and branch
   suffix so they can't collide, and the compare screen shows them side by side.
+
+- **D-2.11 Sandbox egress is default-deny** (audit H-3). Gemini: an exact-host allowlist of package registries plus `github.com`;
+  Anthropic: `limited` networking with Anthropic's package-manager host list. The `url_context` tool is not offered (it fetches
+  arbitrary URLs outside the allowlist). Neither API supports path prefixes, so GitHub access is limited by the token: read-only, one
+  repository. Users can opt into unrestricted access per device in Settings ▸ Agent behaviour, with the exfiltration risk stated.
+- **D-2.12 Sandbox output is bounded before it is held on the phone** (audit H-2): downloads stop at 50 MB (checked by
+  Content-Length, then while streaming), archives at 5,000 entries, files over 10 MB are listed as skipped (never pushed), and the
+  pre-push secret scan decodes at most 2 MB per file / 64 MB per run. Files it couldn't scan block the push like secrets do.
+- **D-2.13 The hard cap is enforced before every model call** (audit H-5): the runner re-checks remaining budget before each turn
+  (follow-ups and reattaches included) and passes only what's left; the OpenAI loop checks before every request and sizes
+  `max_output_tokens` to the remainder. A task whose model is no longer priced is refused instead of running unmetered.
 
 ## 3. Ephemeral encrypted workspace
 
@@ -120,8 +133,10 @@ recorded here with the reason. Facts about third-party APIs were verified agains
   deletes source files or unpushed work — pending workspaces are excluded by construction. Auto-clean is on, 14 days.
 - **D-5.11 App lock** (Face ID / Touch ID / BiometricPrompt + passcode fallback) is optional and off by default; revealing or exporting
   a saved key and "wipe all" always require device authentication regardless.
-- **D-5.12 Sentry** is optional (no DSN → disabled). `sendDefaultPii: false` and `beforeSend` runs the same scrubber used for logs,
-  removing anything that looks like a key, token or code block.
+- **D-5.12 Sentry** is optional (no DSN → disabled). `sendDefaultPii: false`; `beforeSend` scrubs messages and exception values and
+  drops stack-frame source lines and locals (`context_line`, `pre/post_context`, `vars`). Background failures that must not interrupt
+  the user (cross-device notify, metadata reporting, push recovery, pruning) go to one scrubbed error sink (`core/monitoring/report.ts`)
+  instead of being swallowed; a failed pull request after a successful push is shown as a warning.
 - **D-5.13 Email digest** (off by default) is sent by a `pg_cron` job → `email-digest` function via Resend, built only from metadata.
 
 ## 6. Web (PWA) specifics
@@ -149,10 +164,25 @@ recorded here with the reason. Facts about third-party APIs were verified agains
   `model_config` table is read-only for clients. Account deletion (`delete-account`) removes the auth user and cascades.
 - **D-7.2 Auth methods:** Apple, Google, GitHub, email + password and magic link, all through Supabase Auth with PKCE. The Supabase
   session is stored sealed in AsyncStorage (the Keychain item size limit is too small for the session JSON).
-- **D-7.3 CORS:** functions accept a bearer JWT only (no cookies), so CSRF isn't possible; set `ALLOWED_ORIGIN` to your PWA origin in
-  production to tighten CORS further.
+- **D-7.3 Edge Functions fail closed** (audit H-1): a browser request is answered only when its `Origin` is listed in `ALLOWED_ORIGIN`
+  (exact match, `Vary: Origin`, never `*`); native apps send no Origin and are unaffected. Bodies are size-checked before reading,
+  every function is rate-limited per user in Postgres (`hit_rate_limit`), and the two token-broker functions plus account deletion
+  write a metadata-only audit row (`function_audit`, 30-day retention). Cross-device push is deduplicated per task and event.
+- **D-7.4 Least-privilege data access** (audit M-11): users can delete their own settings, task log and devices; devices are written
+  only through `register_device()`, which takes `user_id` and `session_id` from the JWT and never revives a revoked device; device
+  names that look like secrets are rejected by the database. The client's generic function call is limited to the two token-broker
+  functions, the one place GitHub tokens (not provider keys or code) transit the backend.
+- **D-7.5 Email digest** mails only users whose preference is exactly `daily`/`weekly` (queried per period and re-validated per row),
+  pages through users with bounded concurrency inside a time budget, and compares the cron secret in constant time.
 
-## 8. Testing
+## 8. Repository hygiene
+
+- **D-8.1 No LICENSE file yet:** the code is all-rights-reserved until the owner chooses a license (a legal choice, not a technical
+  default). `SECURITY.md` sets up private vulnerability reporting through GitHub.
+- **D-8.2 CI** (`.github/workflows/ci.yml`) runs typecheck, ESLint (including `public/` and a rule that keeps `core/` free of UI/state
+  imports), Prettier, Jest, and `deno check` + `deno lint` for the Edge Functions on every PR and push to `main`.
+
+## 9. Testing
 
 - Unit/integration tests run on Node with `node:sqlite` and an in-memory file/secret store standing in for the device, plus a fake
   GitHub (`tests/helpers/fakeGitHub.ts`). UI tests use `jest-expo` + React Native Testing Library. End-to-end flows use Maestro

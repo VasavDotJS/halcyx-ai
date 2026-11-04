@@ -1,6 +1,6 @@
 import { utf8 } from '@/core/security/crypto';
 import type { AgentTaskRequest, ChangeSet, SandboxChecks } from '@/core/types';
-import { readTar } from '@/core/workspace/tar';
+import { readTarLimited } from '@/core/workspace/tar';
 
 /**
  * The "handoff" contract between HALCYX and a hosted sandbox. The agent never pushes; it
@@ -10,8 +10,34 @@ export const REPO_DIR = '/workspace/repo';
 
 export const PREVIEW_MARKER = /HALCYX_PREVIEW_URL=(https:\/\/[^\s"'<>]+)/;
 
+/**
+ * Sandbox output is untrusted (a prompt-injected agent can return anything), so every
+ * download and archive is bounded before it is held in memory on the phone.
+ */
+export const OUTPUT_LIMITS = {
+  /** changes.tar download cap. */
+  archiveBytes: 50 * 1024 * 1024,
+  /** Files per archive. */
+  entries: 5_000,
+  /** Larger files are listed as skipped for manual handling instead of being reviewed. */
+  fileBytes: 10 * 1024 * 1024,
+  /** summary.md, checks.json, deleted.txt. */
+  smallFileBytes: 1024 * 1024,
+} as const;
+
+const SHA_RE = /^[0-9a-f]{40}$/;
+const BRANCH_RE = /^(?!-)(?!.*\.\.)[A-Za-z0-9._\/-]{1,255}$/;
+
+/** Rejects values that would be unsafe to place in a sandbox shell command or prompt. */
+export function assertSafeRef(baseSha: string, branch: string): void {
+  if (!SHA_RE.test(baseSha)) throw new Error('Invalid base commit SHA');
+  if (!BRANCH_RE.test(branch)) throw new Error('Invalid branch name');
+}
+
+const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
 export function handoffCommand(baseSha: string, outDir: string): string {
-  const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+  if (!SHA_RE.test(baseSha)) throw new Error('Invalid base commit SHA');
   return [
     `cd ${REPO_DIR}`,
     `mkdir -p ${q(outDir)}`,
@@ -22,6 +48,7 @@ export function handoffCommand(baseSha: string, outDir: string): string {
 }
 
 export function agentRules(req: AgentTaskRequest, outDir: string): string {
+  assertSafeRef(req.baseSha, req.baseBranch);
   const destructive = req.approvalMode
     ? `- Before any destructive action (deleting files or directories, running database migrations, dropping data, rewriting git history) call the \`request_approval\` tool and wait for the answer. Do not proceed if it is denied.`
     : '';
@@ -32,7 +59,7 @@ export function agentRules(req: AgentTaskRequest, outDir: string): string {
     'You are a coding agent operated from the HALCYX mobile app. The user reviews your work on their phone.',
     `The repository ${req.repo.owner}/${req.repo.name} is checked out at ${REPO_DIR} (branch ${req.baseBranch}, commit ${req.baseSha}).`,
     'Rules:',
-    `- First run: cd ${REPO_DIR} && git checkout --quiet ${req.baseSha}. Work only inside ${REPO_DIR}.`,
+    `- First run: cd ${REPO_DIR} && git checkout --quiet ${q(req.baseSha)}. Work only inside ${REPO_DIR}.`,
     '- Read AGENTS.md / CONTRIBUTING.md in the repository if present and follow them.',
     '- Never push, never force-push, never change git remotes, never commit secrets or .env files. HALCYX pushes after the user reviews.',
     '- Do not commit; leave your changes in the working tree.',
@@ -88,18 +115,23 @@ export function buildChangeSet(input: {
   checks: string | null;
   title: string;
 }): ChangeSet {
-  const files = input.tar
-    ? readTar(input.tar).flatMap((e) => {
-        const p = safeRepoPath(e.path);
-        return p ? [{ path: p, bytes: e.bytes }] : [];
-      })
-    : [];
+  const read = input.tar
+    ? readTarLimited(input.tar, { maxEntries: OUTPUT_LIMITS.entries, maxEntryBytes: OUTPUT_LIMITS.fileBytes })
+    : { entries: [], skipped: [] };
+  const files = read.entries.flatMap((e) => {
+    const p = safeRepoPath(e.path);
+    return p ? [{ path: p, bytes: e.bytes }] : [];
+  });
+  const skipped = read.skipped.flatMap((e) => {
+    const p = safeRepoPath(e.path);
+    return p ? [{ path: p, bytes: e.bytes }] : [];
+  });
   const deleted = (input.deleted ?? '')
     .split('\0')
     .map((s) => safeRepoPath(s.trim()))
     .filter((p): p is string => !!p);
   const { commitMessage, summary } = parseSummary(input.summary, input.title);
-  return { files, deleted, commitMessage, summary, checks: parseChecks(input.checks) };
+  return { files, deleted, skipped, commitMessage, summary, checks: parseChecks(input.checks) };
 }
 
 export const decodeOrNull = (b: Uint8Array | null) => (b ? utf8.decode(b) : null);

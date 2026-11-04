@@ -8,6 +8,7 @@ import { filterRepos, listAccessibleRepos } from '@/core/github/repos';
 import type { RepoRef } from '@/core/types';
 import { useReadyServices } from '@/hooks/useServices';
 import { Button, EmptyState, Text } from './primitives';
+import { MAX_FONT_SCALE } from './primitives/Text';
 import { useTheme } from './ThemeProvider';
 
 /** Searchable list of repositories the GitHub App can access. */
@@ -34,6 +35,7 @@ export function RepoList({ onSelect }: { onSelect: (r: RepoRef) => void }) {
       <View className="min-h-[44px] flex-row items-center gap-2 rounded-md border-hairline border-hairline bg-surface px-3">
         <Search size={16} color={t.colors.muted} />
         <TextInput
+          maxFontSizeMultiplier={MAX_FONT_SCALE}
           value={query}
           onChangeText={setQuery}
           placeholder="Search repositories"
