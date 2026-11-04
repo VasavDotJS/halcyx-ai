@@ -1,7 +1,10 @@
 import { migrate } from '@/core/db/migrations';
 import { groupReclaimable, reclaimableRoot, remoteCleanCommand } from '@/core/cleaner/patterns';
 import { OfflineQueue } from '@/core/offline/queue';
-import { extractKey, maskKey } from '@/core/security/keyFormat';
+import { assertMetadataOnly } from '@/core/backend/metadata';
+import { extractKey, looksLikeKey, maskKey } from '@/core/security/keyFormat';
+import { scrubString } from '@/core/security/scrub';
+import { scanChanges } from '@/core/security/secretScanner';
 import { evaluateBudget, UsageMeter } from '@/core/usage/meter';
 import { createTestPlatform } from './helpers/platform';
 
@@ -85,5 +88,20 @@ describe('key handling', () => {
   it('detects a Gemini key inside clipboard text', () => {
     expect(extractKey('gemini', '  "AIzaSyD4kq9Lr7Hc2Vbn5Xw1Pq8Zt6Ym3Ja0Ks9",\n')).toBe('AIzaSyD4kq9Lr7Hc2Vbn5Xw1Pq8Zt6Ym3Ja0Ks9');
     expect(extractKey('gemini', 'hello world')).toBeNull();
+  });
+});
+
+describe('Google keys in both formats', () => {
+  const AQ = 'AQ.Ab8RN6KxQ2mV7pL9tZ4wY1cB3dF5gH8jK0nM2qR4sT6uW8yA';
+  it('accepts, masks and extracts the newer "AQ." keys', () => {
+    expect(looksLikeKey('gemini', AQ)).toBe(true);
+    expect(looksLikeKey('gemini', 'AQ.short')).toBe(false);
+    expect(maskKey(AQ)).toBe('AQ.••••8yA');
+    expect(extractKey('gemini', `  "${AQ}"\n`)).toBe(AQ);
+  });
+  it('treats them as secrets everywhere (scanner, scrubber, backend guard)', () => {
+    expect(scrubString(`key=${AQ}`)).not.toContain(AQ);
+    expect(scanChanges([{ path: 'src/config.ts', text: `const k = "${AQ}";` }]).length).toBeGreaterThan(0);
+    expect(() => assertMetadataOnly('task_log', { task_id: 'x', repo: 'o/r', branch: AQ })).toThrow();
   });
 });

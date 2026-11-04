@@ -24,6 +24,7 @@ export const SECRET_RULES: SecretRule[] = [
   { id: 'github-pat', description: 'GitHub token', regex: /\b(gh[pousr]_[A-Za-z0-9]{36,255})\b/g, group: 1 },
   { id: 'github-fine-grained', description: 'GitHub fine-grained token', regex: /\b(github_pat_[A-Za-z0-9_]{82})\b/g, group: 1 },
   { id: 'google-api-key', description: 'Google API key', regex: /\b(AIza[0-9A-Za-z_-]{35})\b/g, group: 1 },
+  { id: 'google-aq-key', description: 'Google API key (AQ.)', regex: /\b(AQ\.[A-Za-z0-9._-]{20,256})/g, group: 1 },
   { id: 'anthropic-key', description: 'Anthropic API key', regex: /\b(sk-ant-[A-Za-z0-9_-]{20,})\b/g, group: 1 },
   {
     id: 'openai-key',

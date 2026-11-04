@@ -165,3 +165,18 @@ describe('H-5: the hard cap is checked before every model call', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
+
+describe('requests can never hang the UI', () => {
+  it('times out a request that has no abort signal of its own', async () => {
+    jest.useFakeTimers();
+    const { request, DEFAULT_TIMEOUT_MS } = jest.requireActual<typeof import('@/core/providers/http')>('@/core/providers/http');
+    const never = (_u: string, init?: RequestInit) =>
+      new Promise<Response>((_res, rej) =>
+        init?.signal?.addEventListener('abort', () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' }))),
+      );
+    const p = request(never, 'https://generativelanguage.googleapis.com/v1beta/models', {});
+    jest.advanceTimersByTime(DEFAULT_TIMEOUT_MS + 1);
+    await expect(p).rejects.toThrow(/timed out/);
+    jest.useRealTimers();
+  });
+});

@@ -2,7 +2,8 @@ import type { ProviderId } from '@/core/types';
 
 /** Recognisable key shapes per provider, used for clipboard auto-detect and input validation. */
 const FORMATS: Record<ProviderId, RegExp> = {
-  gemini: /^AIza[0-9A-Za-z_-]{35}$/,
+  // Google issues classic `AIza…` keys and, for many newer accounts, `AQ.…` keys.
+  gemini: /^(AIza[0-9A-Za-z_-]{35}|AQ\.[A-Za-z0-9._-]{20,256})$/,
   anthropic: /^sk-ant-[A-Za-z0-9_-]{20,}$/,
   openai: /^sk-[A-Za-z0-9_-]{20,}$/,
 };
@@ -24,6 +25,6 @@ export function extractKey(provider: ProviderId, text: string): string | null {
 export function maskKey(key: string): string {
   const k = key.trim();
   if (k.length < 10) return '••••';
-  const head = k.startsWith('sk-ant-') ? 'sk-ant-' : k.startsWith('sk-') ? 'sk-' : k.slice(0, 4);
+  const head = k.startsWith('sk-ant-') ? 'sk-ant-' : k.startsWith('sk-') ? 'sk-' : k.startsWith('AQ.') ? 'AQ.' : k.slice(0, 4);
   return `${head}••••${k.slice(-3)}`;
 }

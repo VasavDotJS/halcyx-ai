@@ -31,13 +31,22 @@ function errorMessage(bodyText: string, status: number): string {
   return `Request failed (${status})`;
 }
 
+/** Requests without their own abort signal (key checks, one-off calls) give up after this long. */
+export const DEFAULT_TIMEOUT_MS = 20_000;
+
 export async function request(fetchImpl: FetchLike, url: string, init: RequestInit): Promise<Response> {
   let res: Response;
+  // Streaming/agent calls pass their own signal; everything else gets a timeout so the UI can't spin forever.
+  const timeout = init.signal ? null : new AbortController();
+  const timer = timeout ? setTimeout(() => timeout.abort(), DEFAULT_TIMEOUT_MS) : null;
   try {
-    res = await fetchImpl(url, init);
+    res = await fetchImpl(url, timeout ? { ...init, signal: timeout.signal } : init);
   } catch (e) {
+    if (timeout?.signal.aborted) throw new ProviderError('The request timed out. Check your connection and try again.', 0, 'network_error');
     if ((e as Error).name === 'AbortError') throw e;
     throw new ProviderError('Network unavailable', 0, 'network_error');
+  } finally {
+    if (timer) clearTimeout(timer);
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '');

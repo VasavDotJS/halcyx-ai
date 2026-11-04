@@ -14,7 +14,7 @@ const STEPS = [
   { icon: LogIn, title: 'Sign in to Google AI Studio', body: 'Use the Google account you want billed.' },
   { icon: KeyRound, title: 'Tap “Create API key”', body: 'It’s on the API keys page that just opened.' },
   { icon: FolderPlus, title: 'Choose or create a project', body: 'Any Google Cloud project works; a new one is fine.' },
-  { icon: ClipboardPaste, title: 'Copy the key', body: 'It starts with “AIza”. Come back here — we’ll detect it.' },
+  { icon: ClipboardPaste, title: 'Copy the key', body: 'It starts with “AIza” or “AQ.”. Come back here — we’ll detect it.' },
 ];
 
 /** Guided Gemini key setup for non-experts (spec §3.2 "Google key concierge"). */
@@ -49,22 +49,28 @@ export function GoogleKeyConcierge({ onDone }: { onDone: () => void }) {
   const save = async (key: string, fromClipboard: boolean) => {
     setState('checking');
     setMessage(null);
-    const result = await s.keys.validateCandidate('gemini', key, s.fetch, s.isWeb);
-    if (result.status === 'invalid' || result.status === 'network_error') {
+    try {
+      const result = await s.keys.validateCandidate('gemini', key, s.fetch, s.isWeb);
+      if (result.status === 'invalid' || result.status === 'network_error') {
+        setState('error');
+        setMessage(
+          result.status === 'invalid'
+            ? `Google rejected that key${result.message ? `: “${result.message}”` : '.'} Copy it again from AI Studio, or create a new one.`
+            : 'Couldn’t reach Google. Check your connection and try again.',
+        );
+        return;
+      }
+      await s.keys.set('gemini', key);
+      await s.keys.validate('gemini', s.fetch, s.isWeb).catch(() => undefined);
+      // Clearing the clipboard is best effort (browsers may refuse); never let it block saving.
+      if (fromClipboard) await Clipboard.setStringAsync('').catch(() => undefined);
+      haptic.success();
+      setState('saved');
+      setMessage(result.status === 'quota_exceeded' ? 'Saved. Your project is out of quota right now — check billing in AI Studio.' : null);
+    } catch (e) {
       setState('error');
-      setMessage(
-        result.status === 'invalid'
-          ? 'Google rejected that key. Copy it again from AI Studio.'
-          : 'No connection — try again when you’re online.',
-      );
-      return;
+      setMessage(`Couldn’t save the key: ${(e as Error).message}`);
     }
-    await s.keys.set('gemini', key);
-    await s.keys.validate('gemini', s.fetch, s.isWeb);
-    if (fromClipboard) await Clipboard.setStringAsync('');
-    haptic.success();
-    setState('saved');
-    setMessage(result.status === 'quota_exceeded' ? 'Saved. Your project is out of quota right now — check billing in AI Studio.' : null);
   };
 
   return (
@@ -138,7 +144,7 @@ export function GoogleKeyConcierge({ onDone }: { onDone: () => void }) {
             label="Or paste it here"
             value={manual}
             onChangeText={setManual}
-            placeholder="AIza…"
+            placeholder="AIza… or AQ.…"
             autoCapitalize="none"
             autoCorrect={false}
             secureTextEntry
