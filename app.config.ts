@@ -61,7 +61,8 @@ const config: ExpoConfig = {
     ['@sentry/react-native/expo', { organization: process.env.SENTRY_ORG, project: process.env.SENTRY_PROJECT }],
     'expo-font',
   ],
-  experiments: { typedRoutes: true },
+  // HALCYX_WEB_BASE_URL serves the PWA from a sub-path, e.g. /halcyx-ai on GitHub Pages.
+  experiments: { typedRoutes: true, ...(process.env.HALCYX_WEB_BASE_URL ? { baseUrl: process.env.HALCYX_WEB_BASE_URL } : {}) },
   updates: { url: process.env.EAS_UPDATE_URL, fallbackToCacheTimeout: 0 },
   runtimeVersion: { policy: 'fingerprint' },
   extra: {

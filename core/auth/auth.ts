@@ -4,10 +4,11 @@ import * as Crypto from 'expo-crypto';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
+import { appUrl } from '@/core/app/links';
 
 WebBrowser.maybeCompleteAuthSession();
 
-export const callbackUrl = (params = '') => Linking.createURL(`auth-callback${params}`);
+export const callbackUrl = (params = '') => appUrl(`auth-callback${params}`);
 
 export async function signInWithPassword(sb: SupabaseClient, email: string, password: string) {
   const { error } = await sb.auth.signInWithPassword({ email: email.trim(), password });

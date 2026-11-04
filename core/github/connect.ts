@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
-import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
+import { appUrl } from '@/core/app/links';
 import type { Services } from '@/core/app/services';
 import { buildAuthorizeRequest, parseCallback } from './oauth';
 
@@ -11,7 +11,7 @@ const extra = () => (Constants.expoConfig?.extra ?? {}) as Extra;
 export async function connectGitHub(s: Services): Promise<boolean> {
   const clientId = extra().githubAppClientId;
   if (!clientId) throw new Error('GitHub App is not configured (EXPO_PUBLIC_GITHUB_APP_CLIENT_ID).');
-  const redirectUri = Linking.createURL('github-callback');
+  const redirectUri = appUrl('github-callback');
   const req = await buildAuthorizeRequest(clientId, redirectUri);
   const result = await WebBrowser.openAuthSessionAsync(req.url, redirectUri, { preferEphemeralSession: false });
   if (result.type !== 'success') return false;

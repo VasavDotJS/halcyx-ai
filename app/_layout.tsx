@@ -30,7 +30,7 @@ const queryClient = new QueryClient({
 
 function Shell() {
   const t = useTheme();
-  const { services: s, error } = useServicesState();
+  const { services: s, error, retry } = useServicesState();
   const ready = useSession((x) => x.ready);
   const locked = useSession((x) => x.locked);
   useAuthBootstrap(s);
@@ -44,7 +44,7 @@ function Shell() {
     if (error) void SplashScreen.hideAsync();
   }, [s, ready, error]);
 
-  if (error) return <BootError error={error} />;
+  if (error) return <BootError error={error} onRetry={retry} />;
   if (!s || !ready) return null;
   return (
     <>

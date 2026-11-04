@@ -211,20 +211,38 @@ Profiles live in `eas.json`: `development` (dev client), `preview` (internal dis
 
 ## Deploy the PWA
 
+### GitHub Pages (set up in this repo)
+
+Every push to `main` runs `.github/workflows/pages.yml`: typecheck, lint and tests, then `expo export` with
+`HALCYX_WEB_BASE_URL=/<repo-name>`, then `scripts/prepare-pages.mjs` and a Pages deploy. The site is served at
+`https://<owner>.github.io/<repo-name>/`.
+
+- One-time: **Settings ▸ Pages ▸ Build and deployment ▸ Source: GitHub Actions**.
+- Client values come from repository **variables** (Settings ▸ Secrets and variables ▸ Actions ▸ Variables):
+  `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` (defaults to the project this repo was set up with),
+  `EXPO_PUBLIC_GITHUB_APP_CLIENT_ID`, `EXPO_PUBLIC_GITHUB_APP_SLUG`, `EXPO_PUBLIC_SENTRY_DSN`. Re-run the workflow after changing them.
+- GitHub Pages can't send custom headers, so the service worker adds the cross-origin isolation headers itself and the page
+  reloads once on the first visit. Unknown paths fall back to `404.html` (a copy of the app), so deep links work.
+
+### Any other static host
+
 ```bash
 npx expo export --platform web      # outputs dist/
+# serving from a sub-path?  HALCYX_WEB_BASE_URL=/sub npx expo export … && node scripts/prepare-pages.mjs dist /sub
 ```
 
-`dist/` is a static single-page app. It must be served with:
+`dist/` is a static single-page app. Serve it over HTTPS with an SPA fallback to `index.html`. Hosts that can set headers should send
+`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless` (SQLite on the web needs
+`SharedArrayBuffer`); `vercel.json` and `netlify.toml` already do this plus security headers and caching.
 
-- `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless` (SQLite on web needs
-  `SharedArrayBuffer`; without them the app shows "HALCYX couldn't start"),
-- an SPA fallback to `/index.html`,
-- HTTPS (service worker, WebCrypto).
-
-`vercel.json` and `netlify.toml` already configure all of this plus security headers and caching — connect the repo and deploy.
 On the web, saved keys are protected by a non-extractable WebCrypto key in IndexedDB, which is weaker than a device keystore; the app
 tells users this when they save a key in a browser.
+
+### Supabase auth URLs for the web app
+
+In **Authentication ▸ URL Configuration**, set the Site URL to the PWA address and add
+`https://<owner>.github.io/<repo-name>/auth-callback` (and `/github-callback` if you use GitHub sign-in from the web) to the
+redirect URLs. Add the same `…/github-callback` URL to `GITHUB_REDIRECT_URIS` and to the GitHub App's callback URLs.
 
 ---
 

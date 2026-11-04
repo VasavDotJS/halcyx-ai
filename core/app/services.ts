@@ -166,7 +166,11 @@ async function build(): Promise<Services> {
 }
 
 export function services(): Promise<Services> {
-  instance ??= build();
+  // A failed boot isn't cached, so "Try again" on the boot error screen really retries.
+  instance ??= build().catch((e: unknown) => {
+    instance = null;
+    throw e;
+  });
   return instance;
 }
 

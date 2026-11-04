@@ -1,0 +1,56 @@
+name: Deploy PWA to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Public client values (row-level security protects the data). Override with repository
+      # variables (Settings ▸ Secrets and variables ▸ Actions ▸ Variables) to point elsewhere.
+      EXPO_PUBLIC_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SUPABASE_URL || 'https://dwlzymxsatgcsgnokwwl.supabase.co' }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_kN5Yvb_A9BGvjRAqqd8QWA_HbG8ny5-' }}
+      EXPO_PUBLIC_GITHUB_APP_CLIENT_ID: ${{ vars.EXPO_PUBLIC_GITHUB_APP_CLIENT_ID }}
+      EXPO_PUBLIC_GITHUB_APP_SLUG: ${{ vars.EXPO_PUBLIC_GITHUB_APP_SLUG }}
+      EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN }}
+      HALCYX_WEB_BASE_URL: /${{ github.event.repository.name }}
+      EXPO_NO_TELEMETRY: '1'
+      CI: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test -- --ci
+      - run: npx expo export --platform web --output-dir dist
+      - run: node scripts/prepare-pages.mjs dist "$HALCYX_WEB_BASE_URL"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

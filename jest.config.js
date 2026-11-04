@@ -6,7 +6,7 @@ module.exports = {
       displayName: 'core',
       testEnvironment: 'node',
       testMatch: ['<rootDir>/tests/**/*.test.ts'],
-      transform: { '^.+\\.[jt]sx?$': 'babel-jest' },
+      transform: { '^.+\\.m?[jt]sx?$': 'babel-jest' },
       transformIgnorePatterns: ['/node_modules/(?!(diff|@octokit|universal-user-agent|before-after-hook|content-type|json-with-bigint)/)'],
       moduleNameMapper: alias,
       setupFiles: ['<rootDir>/tests/setup/node.ts'],

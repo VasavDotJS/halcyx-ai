@@ -135,6 +135,14 @@ recorded here with the reason. Facts about third-party APIs were verified agains
   API traffic is never cached.
 - **D-6.4** If local storage can't be initialised, the app shows a "HALCYX couldn't start" screen with the reason instead of a blank page.
 
+- **D-6.5 Hosted on GitHub Pages** (free, deploys from the repo on every push to `main`). Pages serves the app under `/<repo>` and
+  can't set headers, so: Expo's `experiments.baseUrl` is set from `HALCYX_WEB_BASE_URL`; auth redirect URLs are built with
+  `appUrl()` because `Linking.createURL` drops the base path on web; the service worker adds COOP/COEP (`credentialless`, or
+  `require-corp` on Safari, which lacks credentialless) to same-origin responses and the page reloads once; `404.html` is a copy of
+  the app for deep links; `.nojekyll` keeps `/_expo` published. Hosts that can send headers (Vercel, Netlify) need none of this.
+- **D-6.6 Supabase publishable key** (`sb_publishable_…`) is used by the web build instead of the legacy anon JWT; both are public
+  client keys and RLS protects the data.
+
 ## 7. Backend
 
 - **D-7.1 Supabase** (Auth, Postgres, Edge Functions). RLS is enabled on every table with `auth.uid()` ownership policies; the
