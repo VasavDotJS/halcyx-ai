@@ -1,7 +1,8 @@
-import { router } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useState } from 'react';
-import { friendlyAuthError, signUp } from '@/core/auth/auth';
+import { AccountExistsError, friendlyAuthError, signUp } from '@/core/auth/auth';
 import { useReadyServices } from '@/hooks/useServices';
+import { View } from 'react-native';
 import { Button, Input, Screen, Text } from '@/ui/primitives';
 
 export default function SignUp() {
@@ -10,15 +11,18 @@ export default function SignUp() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exists, setExists] = useState(false);
   const weak = password.length > 0 && password.length < 10;
 
   const submit = async () => {
     setBusy(true);
     setError(null);
+    setExists(false);
     try {
       const { needsVerification } = await signUp(s.supabase, email, password);
       if (needsVerification) router.replace({ pathname: '/(auth)/verify', params: { email } });
     } catch (e) {
+      setExists(e instanceof AccountExistsError);
       setError(friendlyAuthError(e));
     } finally {
       setBusy(false);
@@ -41,7 +45,21 @@ export default function SignUp() {
         textContentType="newPassword"
         error={weak ? 'Use at least 10 characters.' : null}
       />
-      {error ? <Text tone="danger">{error}</Text> : null}
+      {error ? (
+        <Text tone="danger" accessibilityLiveRegion="polite">
+          {error}
+        </Text>
+      ) : null}
+      {exists ? (
+        <View className="flex-row justify-between">
+          <Link href="/(auth)/sign-in" className="py-2 font-medium text-accent">
+            Sign in
+          </Link>
+          <Link href={{ pathname: '/(auth)/forgot', params: { email } }} className="py-2 font-medium text-accent">
+            Forgot password?
+          </Link>
+        </View>
+      ) : null}
       <Button title="Create account" full loading={busy} disabled={!email || password.length < 10} onPress={submit} />
     </Screen>
   );

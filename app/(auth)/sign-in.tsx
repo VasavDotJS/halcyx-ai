@@ -1,9 +1,12 @@
+import { useQuery } from '@tanstack/react-query';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { Link } from 'expo-router';
 import { GitBranch, Mail } from 'lucide-react-native';
 import { useState } from 'react';
 import { Platform, View } from 'react-native';
 import { friendlyAuthError, sendMagicLink, signInWithApple, signInWithOAuth, signInWithPassword } from '@/core/auth/auth';
+import { FALLBACK_PROVIDERS, fetchAuthProviders } from '@/core/auth/providers';
+import { supabaseConfig } from '@/core/backend/supabase';
 import { useReadyServices } from '@/hooks/useServices';
 import { Logo } from '@/ui/Logo';
 import { Button, Divider, Input, Screen, Segmented, Text } from '@/ui/primitives';
@@ -18,6 +21,17 @@ export default function SignIn() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Only offer sign-in methods the backend has enabled (avoids "provider is not enabled").
+  const providers = useQuery({
+    queryKey: ['auth-providers'],
+    queryFn: () => {
+      const { url, anonKey } = supabaseConfig();
+      return fetchAuthProviders(url, anonKey);
+    },
+    staleTime: 10 * 60_000,
+  });
+  const p = providers.data ?? FALLBACK_PROVIDERS;
+  const anySocial = p.apple || p.google || p.github;
 
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
@@ -42,51 +56,59 @@ export default function SignIn() {
         </Text>
       </View>
 
-      <View className="gap-2">
-        {Platform.OS === 'ios' ? (
-          <AppleAuthentication.AppleAuthenticationButton
-            buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
-            buttonStyle={
-              t.dark ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
-            }
-            cornerRadius={t.radius.md}
-            style={{ height: 46 }}
-            onPress={() => run('apple', () => signInWithApple(s.supabase))}
-          />
-        ) : (
-          <Button
-            title="Continue with Apple"
-            variant="secondary"
-            loading={busy === 'apple'}
-            onPress={() => run('apple', () => signInWithApple(s.supabase))}
-          />
-        )}
-        <Button
-          title="Continue with Google"
-          variant="secondary"
-          loading={busy === 'google'}
-          onPress={() => run('google', () => signInWithOAuth(s.supabase, 'google'))}
-        />
-        <Button
-          title="Continue with GitHub"
-          variant="secondary"
-          icon={GitBranch}
-          loading={busy === 'github'}
-          onPress={() => run('github', () => signInWithOAuth(s.supabase, 'github'))}
-        />
-      </View>
+      {anySocial ? (
+        <View className="gap-2">
+          {!p.apple ? null : Platform.OS === 'ios' ? (
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+              buttonStyle={
+                t.dark ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+              }
+              cornerRadius={t.radius.md}
+              style={{ height: 46 }}
+              onPress={() => run('apple', () => signInWithApple(s.supabase))}
+            />
+          ) : (
+            <Button
+              title="Continue with Apple"
+              variant="secondary"
+              loading={busy === 'apple'}
+              onPress={() => run('apple', () => signInWithApple(s.supabase))}
+            />
+          )}
+          {p.google ? (
+            <Button
+              title="Continue with Google"
+              variant="secondary"
+              loading={busy === 'google'}
+              onPress={() => run('google', () => signInWithOAuth(s.supabase, 'google'))}
+            />
+          ) : null}
+          {p.github ? (
+            <Button
+              title="Continue with GitHub"
+              variant="secondary"
+              icon={GitBranch}
+              loading={busy === 'github'}
+              onPress={() => run('github', () => signInWithOAuth(s.supabase, 'github'))}
+            />
+          ) : null}
+        </View>
+      ) : null}
 
-      <View className="flex-row items-center gap-3 py-2">
-        <View className="flex-1">
-          <Divider />
+      {anySocial ? (
+        <View className="flex-row items-center gap-3 py-2">
+          <View className="flex-1">
+            <Divider />
+          </View>
+          <Text variant="caption" tone="muted">
+            or with email
+          </Text>
+          <View className="flex-1">
+            <Divider />
+          </View>
         </View>
-        <Text variant="caption" tone="muted">
-          or with email
-        </Text>
-        <View className="flex-1">
-          <Divider />
-        </View>
-      </View>
+      ) : null}
 
       <Segmented
         label="Sign-in method"

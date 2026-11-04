@@ -34,11 +34,17 @@ function sealedStorage(secrets: SecretStore) {
 
 type Extra = { supabaseUrl?: string; supabaseAnonKey?: string };
 
-export function createSupabase(secrets: SecretStore): SupabaseClient {
+/** Project URL and public (anon/publishable) key baked into the build. */
+export function supabaseConfig(): { url: string; anonKey: string } {
   const extra = (Constants.expoConfig?.extra ?? {}) as Extra;
   const url = extra.supabaseUrl ?? process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const anon = extra.supabaseAnonKey ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anon) throw new Error('Supabase is not configured: set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.');
+  const anonKey = extra.supabaseAnonKey ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) throw new Error('Supabase is not configured: set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.');
+  return { url, anonKey };
+}
+
+export function createSupabase(secrets: SecretStore): SupabaseClient {
+  const { url, anonKey: anon } = supabaseConfig();
   return createClient(url, anon, {
     auth: {
       storage: sealedStorage(secrets),
