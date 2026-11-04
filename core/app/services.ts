@@ -19,6 +19,8 @@ import { OfflineQueue } from '@/core/offline/queue';
 import { createFileStore } from '@/core/platform/files';
 import { createSecretStore } from '@/core/platform/secrets';
 import { openSqlDb } from '@/core/platform/sqlite';
+import { claimDatabaseTab } from '@/core/platform/tabLock';
+import { useTabState, yieldToNewerTab } from '@/state/tab';
 import type { Platform } from '@/core/platform/types';
 import type { FetchLike } from '@/core/providers/http';
 import { BUNDLED_MODEL_CONFIG, type ModelConfig } from '@/core/providers/modelConfig';
@@ -60,6 +62,10 @@ async function build(): Promise<Services> {
   // First step of boot (not module scope), so a missing WebCrypto shows the boot error screen.
   installCrypto();
   const isWeb = RNPlatform.OS === 'web';
+  // Web: one tab owns the local database; a newer tab (e.g. opened from a magic link) takes over.
+  // A tab that stepped aside must never open (or claim) the database until the user asks.
+  if (useTabState.getState().suspended) throw new Error('HALCYX is open in another tab.');
+  await claimDatabaseTab(yieldToNewerTab);
   const platform: Platform = { db: await openSqlDb(), files: createFileStore(), secrets: createSecretStore() };
   await migrate(platform.db);
 

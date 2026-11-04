@@ -58,9 +58,15 @@ export async function completeFromUrl(sb: SupabaseClient, url: string): Promise<
   const errorDescription = queryParams?.error_description;
   if (typeof errorDescription === 'string') throw new Error(errorDescription);
   if (!code) return 'none';
+  const kind = queryParams?.type === 'recovery' ? 'recovery' : 'signed_in';
   const { error } = await sb.auth.exchangeCodeForSession(code);
-  if (error) throw error;
-  return queryParams?.type === 'recovery' ? 'recovery' : 'signed_in';
+  if (error) {
+    // A link opened twice (or already exchanged) still counts if this browser is signed in.
+    const { data } = await sb.auth.getSession();
+    if (data.session) return kind;
+    throw error;
+  }
+  return kind;
 }
 
 export type OAuthProvider = 'google' | 'github' | 'apple';
@@ -98,6 +104,9 @@ export function friendlyAuthError(e: unknown): string {
   const m = err?.message ?? 'Something went wrong';
   const code = err?.code ?? '';
   if (/ERR_REQUEST_CANCELED|canceled|cancelled/i.test(m)) return '';
+  if (/code verifier not found|pkce/i.test(m)) {
+    return 'Open the sign-in link in the same browser you requested it from — it only works there. Or request a new link here.';
+  }
   if (code === 'invalid_credentials' || /invalid login credentials/i.test(m)) {
     return 'Email or password is incorrect. If you signed up with a magic link or forgot your password, use “Forgot password?”.';
   }

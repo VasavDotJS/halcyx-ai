@@ -13,7 +13,8 @@ import { registerBackgroundPolling } from '@/core/app/background';
 import { initSentry, Sentry } from '@/core/monitoring/sentry';
 import { useAppLifecycle } from '@/hooks/useAppLifecycle';
 import { useServicesState } from '@/hooks/useServices';
-import { BootError } from '@/ui/BootError';
+import { BootError, OpenElsewhere } from '@/ui/BootError';
+import { useTabState } from '@/state/tab';
 import { useAuthBootstrap } from '@/hooks/useAuthBootstrap';
 import { useSession } from '@/state/session';
 import { LockScreen } from '@/ui/LockScreen';
@@ -29,6 +30,7 @@ const queryClient = new QueryClient({
 function Shell() {
   const t = useTheme();
   const { services: s, error, retry } = useServicesState();
+  const suspended = useTabState((x) => x.suspended);
   const ready = useSession((x) => x.ready);
   const locked = useSession((x) => x.locked);
   useAuthBootstrap(s);
@@ -42,6 +44,7 @@ function Shell() {
     if (error) void SplashScreen.hideAsync();
   }, [s, ready, error]);
 
+  if (suspended) return <OpenElsewhere />;
   if (error) return <BootError error={error} onRetry={retry} />;
   if (!s || !ready) return null;
   return (

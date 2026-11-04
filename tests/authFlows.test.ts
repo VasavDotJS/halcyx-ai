@@ -4,7 +4,10 @@ import { FALLBACK_PROVIDERS, fetchAuthProviders, parseAuthSettings } from '@/cor
 jest.mock('expo-apple-authentication', () => ({}));
 jest.mock('expo-crypto', () => ({}));
 jest.mock('expo-web-browser', () => ({ maybeCompleteAuthSession: () => undefined }));
-jest.mock('expo-linking', () => ({ createURL: (p: string) => `halcyx://${p}`, parse: () => ({ queryParams: {} }) }));
+jest.mock('expo-linking', () => ({
+  createURL: (p: string) => `halcyx://${p}`,
+  parse: (u: string) => ({ queryParams: Object.fromEntries(new URL(u).searchParams) }),
+}));
 jest.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
 
 describe('sign-in providers come from the backend', () => {
@@ -57,5 +60,19 @@ describe('email sign-up never claims an email was sent when none was', () => {
     expect(friendlyAuthError({ message: 'Invalid login credentials', code: 'invalid_credentials' })).toMatch(/Forgot password/);
     expect(friendlyAuthError({ message: 'Unsupported provider: provider is not enabled' })).toMatch(/isn’t available/);
     expect(friendlyAuthError({ message: 'Email link is invalid or has expired', code: 'otp_expired' })).toMatch(/expired/);
+    expect(friendlyAuthError({ message: 'PKCE code verifier not found in storage.' })).toMatch(/same browser/);
+  });
+});
+
+describe('magic-link callback', () => {
+  it('treats an already-exchanged link as signed in when this browser has a session', async () => {
+    const { completeFromUrl } = jest.requireActual<typeof import('@/core/auth/auth')>('@/core/auth/auth');
+    const sb = {
+      auth: {
+        exchangeCodeForSession: jest.fn().mockResolvedValue({ error: new Error('PKCE code verifier not found in storage.') }),
+        getSession: jest.fn().mockResolvedValue({ data: { session: { user: { id: 'u' } } } }),
+      },
+    } as never;
+    await expect(completeFromUrl(sb, 'https://x/auth-callback?code=abc')).resolves.toBe('signed_in');
   });
 });

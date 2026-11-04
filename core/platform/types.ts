@@ -11,6 +11,8 @@ export interface SqlDb {
   all<T>(sql: string, params?: SqlValue[]): Promise<T[]>;
   get<T>(sql: string, params?: SqlValue[]): Promise<T | null>;
   transaction(fn: () => Promise<void>): Promise<void>;
+  /** Releases the underlying file (web: lets another tab open it). */
+  close?(): Promise<void>;
 }
 
 export interface FileStore {

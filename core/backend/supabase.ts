@@ -1,7 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
-import { Platform as RNPlatform } from 'react-native';
 import type { SecretStore } from '@/core/platform/types';
 import { openLocal, sealLocal } from '@/core/security/dataKey';
 
@@ -50,7 +49,9 @@ export function createSupabase(secrets: SecretStore): SupabaseClient {
       storage: sealedStorage(secrets),
       autoRefreshToken: true,
       persistSession: true,
-      detectSessionInUrl: RNPlatform.OS === 'web',
+      // The /auth-callback route exchanges the code itself; letting the client do it too on web
+      // made the second exchange fail and showed an error even though sign-in had succeeded.
+      detectSessionInUrl: false,
       flowType: 'pkce',
     },
   });

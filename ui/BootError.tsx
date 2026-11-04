@@ -1,4 +1,5 @@
 import { Platform, View } from 'react-native';
+import { reclaimFromOtherTab } from '@/state/tab';
 import { Logo } from './Logo';
 import { Button } from './primitives/Button';
 import { Text } from './primitives/Text';
@@ -27,6 +28,22 @@ export function BootError({ error, onRetry }: { error: Error; onRetry?: () => vo
           onPress={isolation ? () => globalThis.location.reload() : onRetry}
         />
       ) : null}
+    </View>
+  );
+}
+
+/** Web: another tab took over the local database (only one tab can hold it). */
+export function OpenElsewhere() {
+  return (
+    <View className="flex-1 items-center justify-center gap-4 bg-bg px-8">
+      <Logo height={24} />
+      <Text variant="heading" className="text-center" accessibilityRole="header">
+        HALCYX is open in another tab
+      </Text>
+      <Text tone="muted" className="max-w-[480px] text-center">
+        Your encrypted data can only be used in one tab at a time, so this tab has stepped aside.
+      </Text>
+      <Button title="Use HALCYX here" variant="secondary" onPress={reclaimFromOtherTab} />
     </View>
   );
 }
