@@ -6,6 +6,7 @@ import { friendlyAuthError, resendVerification } from '@/core/auth/auth';
 import { useReadyServices } from '@/hooks/useServices';
 import { Button, Screen, Text } from '@/ui/primitives';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AuthHeader } from '@/ui/waves/AuthHeader';
 
 export default function Verify() {
   const s = useReadyServices();
@@ -13,7 +14,8 @@ export default function Verify() {
   const { email } = useLocalSearchParams<{ email: string }>();
   const [state, setState] = useState<string | null>(null);
   return (
-    <Screen narrow>
+    <Screen narrow transparent edges={['top', 'bottom']}>
+      <AuthHeader />
       <View className="items-center gap-3 py-8">
         <MailCheck size={36} color={t.colors.accent} />
         <Text variant="title" accessibilityRole="header">

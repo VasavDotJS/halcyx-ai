@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { friendlyAuthError, requestPasswordReset } from '@/core/auth/auth';
 import { useReadyServices } from '@/hooks/useServices';
 import { Button, Input, Screen, Text } from '@/ui/primitives';
+import { AuthHeader } from '@/ui/waves/AuthHeader';
 
 export default function Forgot() {
   const s = useReadyServices();
@@ -11,7 +12,8 @@ export default function Forgot() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   return (
-    <Screen narrow>
+    <Screen narrow transparent edges={['top', 'bottom']}>
+      <AuthHeader />
       <Text variant="title" accessibilityRole="header">
         Reset password
       </Text>

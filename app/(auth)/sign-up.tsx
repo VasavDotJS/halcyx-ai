@@ -4,6 +4,7 @@ import { AccountExistsError, friendlyAuthError, signUp } from '@/core/auth/auth'
 import { useReadyServices } from '@/hooks/useServices';
 import { View } from 'react-native';
 import { Button, Input, Screen, Text } from '@/ui/primitives';
+import { AuthHeader } from '@/ui/waves/AuthHeader';
 
 export default function SignUp() {
   const s = useReadyServices();
@@ -30,7 +31,8 @@ export default function SignUp() {
   };
 
   return (
-    <Screen narrow>
+    <Screen narrow transparent edges={['top', 'bottom']}>
+      <AuthHeader />
       <Text variant="title" accessibilityRole="header">
         Create your account
       </Text>

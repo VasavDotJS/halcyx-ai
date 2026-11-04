@@ -158,6 +158,12 @@ recorded here with the reason. Facts about third-party APIs were verified agains
 - **D-6.6 Supabase publishable key** (`sb_publishable_…`) is used by the web build instead of the legacy anon JWT; both are public
   client keys and RLS protects the data.
 
+- **D-6.7 Sign-in backdrop** is a GPU shader ("dark silk"): a warped sum of directional waves with an analytic gradient, lit as
+  satin (sheen + specular), masked so most of the screen stays pitch black, with grain dithering against banding and a decaying
+  touch/pointer ripple. One shader body is shared by WebGL (web, rendered at 0.6× resolution, paused in background tabs) and Skia
+  (`@shopify/react-native-skia`, iOS/Android, time advanced on the UI thread). Reduced motion shows a single still frame. The
+  auth screens always use the dark theme over pure black. A test compiles and renders the Skia shader with CanvasKit.
+
 ## 7. Backend
 
 - **D-7.1 Supabase** (Auth, Postgres, Edge Functions). RLS is enabled on every table with `auth.uid()` ownership policies; the

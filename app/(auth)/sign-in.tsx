@@ -48,7 +48,7 @@ export default function SignIn() {
   };
 
   return (
-    <Screen narrow edges={['top', 'bottom']}>
+    <Screen narrow transparent edges={['top', 'bottom']}>
       <View className="items-center gap-3 pb-4 pt-10">
         <Logo height={30} />
         <Text tone="muted" className="text-center">

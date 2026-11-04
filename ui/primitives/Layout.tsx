@@ -13,6 +13,7 @@ export function Screen({
   edges = ['bottom'],
   padded = true,
   narrow = false,
+  transparent = false,
 }: {
   title?: string;
   children: ReactNode;
@@ -22,12 +23,14 @@ export function Screen({
   padded?: boolean;
   /** Forms (auth, onboarding): a narrower column reads better on tablets and desktop. */
   narrow?: boolean;
+  /** No background, for screens drawn over an animated backdrop. */
+  transparent?: boolean;
 }) {
   const body = (
     <View className={`mx-auto w-full ${narrow ? 'max-w-[480px]' : 'max-w-[880px]'} ${padded ? 'px-4 py-4' : ''} gap-4`}>{children}</View>
   );
   return (
-    <SafeAreaView edges={edges} className="flex-1 bg-bg">
+    <SafeAreaView edges={edges} className={`flex-1 ${transparent ? 'bg-transparent' : 'bg-bg'}`}>
       {title !== undefined ? <Stack.Screen options={{ title, headerRight }} /> : null}
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {scroll ? (
